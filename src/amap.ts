@@ -26,7 +26,7 @@ export function loadAmap(): Promise<AMapNamespace> {
   amapPromise = AMapLoader.load({
     key,
     version: "2.0",
-    plugins: ["AMap.Scale", "AMap.ToolBar"]
+    plugins: ["AMap.Scale", "AMap.ToolBar", "AMap.Geolocation"]
   });
 
   return amapPromise;

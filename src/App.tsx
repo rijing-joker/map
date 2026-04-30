@@ -24,6 +24,11 @@ import {
   nearestStepIndex
 } from "./geo";
 import {
+  getCurrentLocation,
+  startLocationTracking,
+  type LocationFix
+} from "./location";
+import {
   clearHistoryRoutes,
   deleteHistoryRoute,
   getHealth,
@@ -45,6 +50,20 @@ const DEFAULT_ORIGIN: Coordinate = { lng: 121.4737, lat: 31.2304 };
 
 function formatDistance(distanceM: number): string {
   return `${(distanceM / 1000).toFixed(2)} km`;
+}
+
+function formatLocationAccuracy(accuracyM: number): string {
+  return Number.isFinite(accuracyM) ? formatAccuracy(accuracyM) : "未知";
+}
+
+function getLocationErrorMessage(error: unknown, fallback: string): string {
+  const code = Number((error as { code?: unknown })?.code);
+  const messages: Record<number, string> = {
+    1: "定位权限被拒绝。",
+    2: "暂时无法获取当前位置。",
+    3: "定位超时，请稍后重试。"
+  };
+  return messages[code] ?? (error instanceof Error ? error.message : fallback);
 }
 
 export default function App() {
@@ -70,7 +89,7 @@ export default function App() {
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
-  const watchIdRef = useRef<number | null>(null);
+  const stopLocationWatchRef = useRef<(() => void) | null>(null);
 
   const selectedRoute = useMemo(
     () =>
@@ -103,9 +122,7 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
+      stopLocationWatchRef.current?.();
     };
   }, []);
 
@@ -143,6 +160,44 @@ export default function App() {
     }
   }
 
+  function handleNavigationLocation(location: LocationFix) {
+    if (!selectedRoute) {
+      return;
+    }
+
+    setPositionAccuracyM(location.accuracyM);
+
+    if (location.isCoarse) {
+      setNavigationStatus(
+        `${location.sourceLabel} 只到城市/区域级别，地图未跟随。请允许精确定位或靠近路线后重试。`
+      );
+      return;
+    }
+
+    if (!isUsableLocationAccuracy(location.accuracyM)) {
+      setNavigationStatus(
+        `${location.sourceLabel} 精度太低（约 ${formatLocationAccuracy(location.accuracyM)}），地图未跟随，继续等待更准定位。`
+      );
+      return;
+    }
+
+    const routeDistanceM = distanceToPathM(location.coordinate, selectedRoute.path);
+    if (
+      routeDistanceM !== null &&
+      routeDistanceM > MAX_ROUTE_FOLLOW_DISTANCE_M
+    ) {
+      setNavigationStatus(
+        `当前位置距路线约 ${formatDistance(routeDistanceM)}，地图未跟随。请确认起点或靠近路线后再导航。`
+      );
+      return;
+    }
+
+    setCurrentPosition(location.coordinate);
+    setNavigationStatus(
+      `${location.sourceLabel} 导航中，精度约 ${formatLocationAccuracy(location.accuracyM)}`
+    );
+  }
+
   function handleStartNavigation() {
     setError(null);
     setNavigationStatus(null);
@@ -151,122 +206,62 @@ export default function App() {
       setError("请先生成并选择一条路线。");
       return;
     }
-    if (!navigator.geolocation) {
-      setError("当前浏览器不支持定位，无法开始导航。");
-      return;
-    }
 
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-    }
-
+    stopLocationWatchRef.current?.();
     setIsNavigating(true);
     setCurrentPosition(null);
     setPositionAccuracyM(null);
-    setNavigationStatus("正在获取当前位置...");
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        const accuracyM = Math.round(position.coords.accuracy);
-        setPositionAccuracyM(accuracyM);
-
-        if (!isUsableLocationAccuracy(accuracyM)) {
-          setNavigationStatus(
-            `定位精度太低（约 ${formatAccuracy(accuracyM)}），地图未跟随，继续等待更准定位`
-          );
-          return;
-        }
-
-        const nextPosition = {
-          lng: Number(position.coords.longitude.toFixed(6)),
-          lat: Number(position.coords.latitude.toFixed(6))
-        };
-        const routeDistanceM = distanceToPathM(nextPosition, selectedRoute.path);
-        if (
-          routeDistanceM !== null &&
-          routeDistanceM > MAX_ROUTE_FOLLOW_DISTANCE_M
-        ) {
-          setNavigationStatus(
-            `当前位置距路线约 ${formatDistance(routeDistanceM)}，地图未跟随。请确认起点或靠近路线后再导航`
-          );
-          return;
-        }
-
-        setCurrentPosition(nextPosition);
-        setNavigationStatus("导航中");
-      },
-      (geoError) => {
-        const messages: Record<number, string> = {
-          [geoError.PERMISSION_DENIED]: "定位权限被拒绝，无法导航。",
-          [geoError.POSITION_UNAVAILABLE]: "暂时无法获取当前位置。",
-          [geoError.TIMEOUT]: "定位超时，请稍后重试。"
-        };
-        setError(messages[geoError.code] ?? "导航定位失败。");
+    setNavigationStatus("正在通过高德在线定位获取当前位置...");
+    stopLocationWatchRef.current = startLocationTracking({
+      onLocation: handleNavigationLocation,
+      onError: (locationError) => {
+        setError(getLocationErrorMessage(locationError, "导航定位失败。"));
         handleStopNavigation();
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 3000
       }
-    );
+    });
   }
 
   function handleStopNavigation() {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
+    stopLocationWatchRef.current?.();
+    stopLocationWatchRef.current = null;
     setIsNavigating(false);
     setNavigationStatus(null);
     setCurrentPosition(null);
     setPositionAccuracyM(null);
   }
 
-  function handleLocate() {
+  async function handleLocate() {
     setError(null);
     setLocationStatus(null);
-
-    if (!navigator.geolocation) {
-      setError("当前浏览器不支持定位，请继续手动点地图或输入坐标。");
-      return;
-    }
-
     setIsLocating(true);
-    setLocationStatus("正在请求浏览器定位...");
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const accuracyM = Math.round(position.coords.accuracy);
-        if (!isUsableLocationAccuracy(accuracyM)) {
-          setLocationStatus(
-            `定位精度太低（约 ${formatAccuracy(accuracyM)}），未更新起点。请在地图上手动点选。`
-          );
-          setIsLocating(false);
-          return;
-        }
+    setLocationStatus("正在请求高德在线定位...");
 
-        setOrigin({
-          lng: Number(position.coords.longitude.toFixed(6)),
-          lat: Number(position.coords.latitude.toFixed(6))
-        });
-        setLocationStatus(`已定位，精度约 ${formatAccuracy(accuracyM)}`);
-        setIsLocating(false);
-      },
-      (geoError) => {
-        const messages: Record<number, string> = {
-          [geoError.PERMISSION_DENIED]: "定位权限被拒绝。",
-          [geoError.POSITION_UNAVAILABLE]: "暂时无法获取当前位置。",
-          [geoError.TIMEOUT]: "定位超时，请稍后重试。"
-        };
-        setError(messages[geoError.code] ?? "定位失败。");
-        setLocationStatus(null);
-        setIsLocating(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 12000,
-        maximumAge: 60000
+    try {
+      const location = await getCurrentLocation();
+      if (location.isCoarse) {
+        setLocationStatus(
+          `${location.sourceLabel} 只到城市/区域级别，未更新起点。请在地图上手动点选精确起点。`
+        );
+        return;
       }
-    );
+
+      if (!isUsableLocationAccuracy(location.accuracyM)) {
+        setLocationStatus(
+          `${location.sourceLabel} 精度太低（约 ${formatLocationAccuracy(location.accuracyM)}），未更新起点。请在地图上手动点选。`
+        );
+        return;
+      }
+
+      setOrigin(location.coordinate);
+      setLocationStatus(
+        `已使用${location.sourceLabel}，精度约 ${formatLocationAccuracy(location.accuracyM)}`
+      );
+    } catch (locationError) {
+      setError(getLocationErrorMessage(locationError, "定位失败。"));
+      setLocationStatus(null);
+    } finally {
+      setIsLocating(false);
+    }
   }
 
   async function handleSave() {
