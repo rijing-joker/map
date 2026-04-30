@@ -31,6 +31,11 @@ export type WalkingRouteProvider = {
 const formatPoint = (point: Coordinate) => `${point.lng},${point.lat}`;
 
 export class AmapWalkingClient implements WalkingRouteProvider {
+  private lastRequestAt = 0;
+  private readonly minRequestIntervalMs = Number(
+    process.env.AMAP_REQUEST_INTERVAL_MS ?? 450
+  );
+
   constructor(private readonly apiKey: string) {}
 
   async getWalkingRoute(points: Coordinate[]): Promise<WalkingRoute> {
@@ -54,6 +59,8 @@ export class AmapWalkingClient implements WalkingRouteProvider {
     origin: Coordinate,
     destination: Coordinate
   ): Promise<WalkingRoute> {
+    await this.waitForRateLimit();
+
     const url = new URL("https://restapi.amap.com/v3/direction/walking");
     url.searchParams.set("key", this.apiKey);
     url.searchParams.set("origin", formatPoint(origin));
@@ -89,7 +96,16 @@ export class AmapWalkingClient implements WalkingRouteProvider {
 
       return { path, distanceM };
     } finally {
+      this.lastRequestAt = Date.now();
       clearTimeout(timeout);
+    }
+  }
+
+  private async waitForRateLimit(): Promise<void> {
+    const elapsed = Date.now() - this.lastRequestAt;
+    const delayMs = this.minRequestIntervalMs - elapsed;
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 }

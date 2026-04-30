@@ -12,8 +12,9 @@ import {
 } from "./geometry";
 import type { WalkingRouteProvider } from "./amapClient";
 
-const MAX_ATTEMPTS = 40;
+const MAX_ATTEMPTS = 12;
 const DISTANCE_TOLERANCE_PCT = 5;
+const TARGET_CANDIDATE_COUNT = 3;
 
 type CandidateShape = {
   id: string;
@@ -114,6 +115,7 @@ export async function planRoutes(
     : pointToPointShapes(request.origin, targetDistanceM);
   const candidates: RouteCandidate[] = [];
   const warnings: string[] = [];
+  let rateLimitWarningAdded = false;
 
   for (const shape of shapes) {
     try {
@@ -144,10 +146,29 @@ export async function planRoutes(
         waypoints: shape.waypoints,
         warnings: routeWarnings
       });
+
+      const qualifiedCandidates = candidates.filter((candidate) => {
+        const distanceErrorPct =
+          Math.abs(candidate.distanceM - targetDistanceM) / targetDistanceM * 100;
+        return (
+          distanceErrorPct <= DISTANCE_TOLERANCE_PCT &&
+          candidate.overlapPct <= request.maxOverlapPct
+        );
+      });
+
+      if (qualifiedCandidates.length >= TARGET_CANDIDATE_COUNT) {
+        break;
+      }
     } catch (error) {
-      warnings.push(
-        `${shape.name} 规划失败：${error instanceof Error ? error.message : String(error)}`
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("CUQPS_HAS_EXCEEDED_THE_LIMIT")) {
+        if (!rateLimitWarningAdded) {
+          warnings.push("高德路径规划请求过快，已停止继续尝试并返回当前可用候选。");
+          rateLimitWarningAdded = true;
+        }
+        break;
+      }
+      warnings.push(`${shape.name} 规划失败：${message}`);
     }
   }
 
