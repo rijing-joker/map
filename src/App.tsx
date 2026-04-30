@@ -17,11 +17,10 @@ import {
 } from "lucide-react";
 import {
   formatAccuracy,
+  getNavigationProgress,
   isUsableLocationAccuracy,
   MAX_ROUTE_FOLLOW_DISTANCE_M,
-  distanceToPathM,
-  distanceToStepM,
-  nearestStepIndex
+  type NavigationProgress
 } from "./geo";
 import {
   getCurrentLocation,
@@ -108,17 +107,39 @@ export default function App() {
     (total, route) => total + route.distanceM,
     0
   );
-  const activeStepIndex = useMemo(
+  const navigationProgress = useMemo<NavigationProgress | null>(
     () =>
       currentPosition && selectedRoute
-        ? nearestStepIndex(currentPosition, selectedRoute.steps)
-        : 0,
+        ? getNavigationProgress(
+            currentPosition,
+            selectedRoute.path,
+            selectedRoute.steps
+          )
+        : null,
     [currentPosition, selectedRoute]
   );
+  const activeStepIndex = navigationProgress?.activeStepIndex ?? 0;
   const activeStep = selectedRoute?.steps[activeStepIndex] ?? null;
-  const activeStepDistanceM = currentPosition
-    ? distanceToStepM(currentPosition, activeStep ?? undefined)
-    : null;
+  const nextStep = selectedRoute?.steps[activeStepIndex + 1] ?? null;
+  const displayedSteps = useMemo(() => {
+    if (!selectedRoute) {
+      return [];
+    }
+
+    const stepWindowSize = 12;
+    const steps = selectedRoute.steps;
+    if (steps.length <= stepWindowSize) {
+      return steps.map((step, index) => ({ index, step }));
+    }
+
+    const start = Math.min(
+      Math.max(activeStepIndex - 4, 0),
+      steps.length - stepWindowSize
+    );
+    return steps
+      .slice(start, start + stepWindowSize)
+      .map((step, offset) => ({ index: start + offset, step }));
+  }, [activeStepIndex, selectedRoute]);
 
   useEffect(() => {
     return () => {
@@ -181,20 +202,30 @@ export default function App() {
       return;
     }
 
-    const routeDistanceM = distanceToPathM(location.coordinate, selectedRoute.path);
+    const progress = getNavigationProgress(
+      location.coordinate,
+      selectedRoute.path,
+      selectedRoute.steps
+    );
+    if (!progress) {
+      setNavigationStatus("当前路线缺少可用轨迹，地图未跟随。");
+      return;
+    }
+
     if (
-      routeDistanceM !== null &&
-      routeDistanceM > MAX_ROUTE_FOLLOW_DISTANCE_M
+      progress.distanceToRouteM > MAX_ROUTE_FOLLOW_DISTANCE_M
     ) {
       setNavigationStatus(
-        `当前位置距路线约 ${formatDistance(routeDistanceM)}，地图未跟随。请确认起点或靠近路线后再导航。`
+        `当前位置距路线约 ${formatDistance(progress.distanceToRouteM)}，地图未跟随。请确认起点或靠近路线后再导航。`
       );
       return;
     }
 
     setCurrentPosition(location.coordinate);
     setNavigationStatus(
-      `${location.sourceLabel} 导航中，精度约 ${formatLocationAccuracy(location.accuracyM)}`
+      progress.remainingDistanceM <= 35
+        ? `${location.sourceLabel} 已接近终点，精度约 ${formatLocationAccuracy(location.accuracyM)}`
+        : `${location.sourceLabel} 导航中，剩余 ${formatDistance(progress.remainingDistanceM)}，精度约 ${formatLocationAccuracy(location.accuracyM)}`
     );
   }
 
@@ -510,7 +541,10 @@ export default function App() {
                     selectedRoute?.id === candidate.id ? "selected" : ""
                   }`}
                   key={candidate.id}
-                  onClick={() => setSelectedRouteId(candidate.id)}
+                  onClick={() => {
+                    handleStopNavigation();
+                    setSelectedRouteId(candidate.id);
+                  }}
                 >
                   <span>{candidate.name}</span>
                   <strong>{formatDistance(candidate.distanceM)}</strong>
@@ -560,18 +594,54 @@ export default function App() {
                   ? `${Math.round(activeStep.distanceM)} 米 · 第 ${activeStepIndex + 1}/${selectedRoute.steps.length || 1} 步`
                   : "当前路线没有返回导航步骤"}
               </small>
-              {activeStepDistanceM !== null ? (
-                <small>距当前步骤约 {activeStepDistanceM} 米</small>
-              ) : null}
-              {positionAccuracyM !== null ? (
-                <small>定位精度约 {formatAccuracy(positionAccuracyM)}</small>
-              ) : null}
+              {nextStep ? <small>下一步：{nextStep.instruction}</small> : null}
+              <div className="navigation-progress">
+                <span
+                  style={{
+                    width: `${navigationProgress?.progressPct ?? 0}%`
+                  }}
+                />
+              </div>
+              <div className="navigation-metrics">
+                <div>
+                  <span>剩余</span>
+                  <strong>
+                    {navigationProgress
+                      ? formatDistance(navigationProgress.remainingDistanceM)
+                      : "--"}
+                  </strong>
+                </div>
+                <div>
+                  <span>完成</span>
+                  <strong>
+                    {navigationProgress
+                      ? `${navigationProgress.progressPct.toFixed(0)}%`
+                      : "--"}
+                  </strong>
+                </div>
+                <div>
+                  <span>距路线</span>
+                  <strong>
+                    {navigationProgress
+                      ? `${navigationProgress.distanceToRouteM} 米`
+                      : "--"}
+                  </strong>
+                </div>
+                <div>
+                  <span>精度</span>
+                  <strong>
+                    {positionAccuracyM !== null
+                      ? formatLocationAccuracy(positionAccuracyM)
+                      : "--"}
+                  </strong>
+                </div>
+              </div>
             </div>
             <div className="step-list">
               {selectedRoute.steps.length === 0 ? (
                 <p className="empty-state">暂无导航步骤</p>
               ) : (
-                selectedRoute.steps.slice(0, 12).map((step, index) => (
+                displayedSteps.map(({ step, index }) => (
                   <button
                     className={`step-item ${
                       index === activeStepIndex ? "active" : ""

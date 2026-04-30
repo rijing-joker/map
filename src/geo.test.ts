@@ -4,6 +4,7 @@ import {
   distanceToPathM,
   distanceToStepM,
   formatAccuracy,
+  getNavigationProgress,
   isUsableLocationAccuracy,
   nearestStepIndex
 } from "./geo";
@@ -45,6 +46,20 @@ describe("navigation geo helpers", () => {
   it("reports distance to a route path", () => {
     expect(distanceToPathM(steps[0].path[0], steps[0].path)).toBe(0);
     expect(distanceToPathM({ lng: 122, lat: 32 }, [])).toBeNull();
+  });
+
+  it("reports route progress from the nearest route segment", () => {
+    const progress = getNavigationProgress(
+      { lng: 121.4747, lat: 31.2313 },
+      steps.flatMap((step, index) =>
+        index === 0 ? step.path : step.path.slice(1)
+      ),
+      steps
+    );
+
+    expect(progress?.activeStepIndex).toBe(1);
+    expect(progress?.remainingDistanceM).toBeLessThan(30);
+    expect(progress?.progressPct).toBeGreaterThan(80);
   });
 
   it("rejects very low accuracy browser positions", () => {
