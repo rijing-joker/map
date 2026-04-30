@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { distanceM, distanceToStepM, nearestStepIndex } from "./geo";
+import {
+  distanceM,
+  distanceToPathM,
+  distanceToStepM,
+  formatAccuracy,
+  isUsableLocationAccuracy,
+  nearestStepIndex
+} from "./geo";
 import type { RouteInstructionStep } from "./shared/types";
 
 const steps: RouteInstructionStep[] = [
@@ -33,5 +40,16 @@ describe("navigation geo helpers", () => {
 
     expect(distance).toBe(0);
     expect(distanceM(steps[0].path[0], steps[0].path[1])).toBeGreaterThan(90);
+  });
+
+  it("reports distance to a route path", () => {
+    expect(distanceToPathM(steps[0].path[0], steps[0].path)).toBe(0);
+    expect(distanceToPathM({ lng: 122, lat: 32 }, [])).toBeNull();
+  });
+
+  it("rejects very low accuracy browser positions", () => {
+    expect(isUsableLocationAccuracy(80)).toBe(true);
+    expect(isUsableLocationAccuracy(100000)).toBe(false);
+    expect(formatAccuracy(100000)).toBe("100.0 公里");
   });
 });

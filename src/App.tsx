@@ -15,7 +15,14 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { distanceToStepM, nearestStepIndex } from "./geo";
+import {
+  formatAccuracy,
+  isUsableLocationAccuracy,
+  MAX_ROUTE_FOLLOW_DISTANCE_M,
+  distanceToPathM,
+  distanceToStepM,
+  nearestStepIndex
+} from "./geo";
 import {
   clearHistoryRoutes,
   deleteHistoryRoute,
@@ -154,14 +161,37 @@ export default function App() {
     }
 
     setIsNavigating(true);
+    setCurrentPosition(null);
+    setPositionAccuracyM(null);
     setNavigationStatus("正在获取当前位置...");
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setCurrentPosition({
+        const accuracyM = Math.round(position.coords.accuracy);
+        setPositionAccuracyM(accuracyM);
+
+        if (!isUsableLocationAccuracy(accuracyM)) {
+          setNavigationStatus(
+            `定位精度太低（约 ${formatAccuracy(accuracyM)}），地图未跟随，继续等待更准定位`
+          );
+          return;
+        }
+
+        const nextPosition = {
           lng: Number(position.coords.longitude.toFixed(6)),
           lat: Number(position.coords.latitude.toFixed(6))
-        });
-        setPositionAccuracyM(Math.round(position.coords.accuracy));
+        };
+        const routeDistanceM = distanceToPathM(nextPosition, selectedRoute.path);
+        if (
+          routeDistanceM !== null &&
+          routeDistanceM > MAX_ROUTE_FOLLOW_DISTANCE_M
+        ) {
+          setNavigationStatus(
+            `当前位置距路线约 ${formatDistance(routeDistanceM)}，地图未跟随。请确认起点或靠近路线后再导航`
+          );
+          return;
+        }
+
+        setCurrentPosition(nextPosition);
         setNavigationStatus("导航中");
       },
       (geoError) => {
@@ -188,6 +218,8 @@ export default function App() {
     }
     setIsNavigating(false);
     setNavigationStatus(null);
+    setCurrentPosition(null);
+    setPositionAccuracyM(null);
   }
 
   function handleLocate() {
@@ -203,11 +235,20 @@ export default function App() {
     setLocationStatus("正在请求浏览器定位...");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        const accuracyM = Math.round(position.coords.accuracy);
+        if (!isUsableLocationAccuracy(accuracyM)) {
+          setLocationStatus(
+            `定位精度太低（约 ${formatAccuracy(accuracyM)}），未更新起点。请在地图上手动点选。`
+          );
+          setIsLocating(false);
+          return;
+        }
+
         setOrigin({
           lng: Number(position.coords.longitude.toFixed(6)),
           lat: Number(position.coords.latitude.toFixed(6))
         });
-        setLocationStatus(`已定位，精度约 ${Math.round(position.coords.accuracy)} 米`);
+        setLocationStatus(`已定位，精度约 ${formatAccuracy(accuracyM)}`);
         setIsLocating(false);
       },
       (geoError) => {
@@ -526,7 +567,7 @@ export default function App() {
                 <small>距当前步骤约 {activeStepDistanceM} 米</small>
               ) : null}
               {positionAccuracyM !== null ? (
-                <small>定位精度约 {positionAccuracyM} 米</small>
+                <small>定位精度约 {formatAccuracy(positionAccuracyM)}</small>
               ) : null}
             </div>
             <div className="step-list">

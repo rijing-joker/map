@@ -1,6 +1,8 @@
 import type { Coordinate, RouteInstructionStep } from "./shared/types";
 
 const EARTH_RADIUS_M = 6371008.8;
+export const MAX_USABLE_LOCATION_ACCURACY_M = 250;
+export const MAX_ROUTE_FOLLOW_DISTANCE_M = 500;
 
 const toRad = (value: number) => (value * Math.PI) / 180;
 
@@ -53,4 +55,26 @@ export function distanceToStepM(
   return Math.round(
     Math.min(...step.path.map((point) => distanceM(position, point)))
   );
+}
+
+export function distanceToPathM(
+  position: Coordinate,
+  path: Coordinate[]
+): number | null {
+  if (path.length === 0) {
+    return null;
+  }
+
+  return Math.round(Math.min(...path.map((point) => distanceM(position, point))));
+}
+
+export function isUsableLocationAccuracy(accuracyM: number): boolean {
+  return Number.isFinite(accuracyM) && accuracyM <= MAX_USABLE_LOCATION_ACCURACY_M;
+}
+
+export function formatAccuracy(accuracyM: number): string {
+  if (accuracyM >= 1000) {
+    return `${(accuracyM / 1000).toFixed(1)} 公里`;
+  }
+  return `${Math.round(accuracyM)} 米`;
 }
