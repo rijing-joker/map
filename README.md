@@ -30,6 +30,27 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+## Phone Access With Cloudflare Tunnel
+
+For mobile browser navigation, use HTTPS through Cloudflare Tunnel:
+
+```powershell
+npm run dev
+cloudflared tunnel --url http://127.0.0.1:5173 --hostname map.rjsyfe324.ccwu.cc
+```
+
+Then open:
+
+```text
+https://map.rjsyfe324.ccwu.cc
+```
+
+Notes:
+
+- Keep `PUBLIC_HOST=map.rjsyfe324.ccwu.cc` in `.env`.
+- Add `https://map.rjsyfe324.ccwu.cc` to the AMap JS API allowed referrers if the map does not load.
+- Mobile navigation needs browser location permission and works best on a phone with GPS.
+
 Useful checks:
 
 ```powershell
