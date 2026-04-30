@@ -413,6 +413,7 @@ export default function App() {
             max="30"
             step="0.5"
             value={distanceKm}
+            disabled={isPlanning}
             onChange={(event) => setDistanceKm(Number(event.target.value))}
           />
 
@@ -427,6 +428,7 @@ export default function App() {
             max="80"
             step="5"
             value={maxOverlapPct}
+            disabled={isPlanning}
             onChange={(event) => setMaxOverlapPct(Number(event.target.value))}
           />
 
