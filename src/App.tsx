@@ -361,7 +361,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${isNavigating ? "is-navigating" : ""}`}>
       <MapCanvas
         origin={origin}
         candidates={candidates}
@@ -375,7 +375,7 @@ export default function App() {
         onOriginChange={setOrigin}
       />
 
-      <aside className="control-panel">
+      <aside className={`control-panel ${isNavigating ? "navigation-active" : ""}`}>
         <header className="panel-header">
           <div>
             <p>Route Planner</p>
