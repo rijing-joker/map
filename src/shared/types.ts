@@ -10,6 +10,17 @@ export type PlanRouteRequest = {
   maxOverlapPct: number;
 };
 
+export type RouteInstructionStep = {
+  id: string;
+  instruction: string;
+  road?: string;
+  action?: string;
+  assistantAction?: string;
+  distanceM: number;
+  durationS?: number;
+  path: Coordinate[];
+};
+
 export type RouteCandidate = {
   id: string;
   name: string;
@@ -20,6 +31,7 @@ export type RouteCandidate = {
   returnToStart: boolean;
   path: Coordinate[];
   waypoints: Coordinate[];
+  steps: RouteInstructionStep[];
   warnings: string[];
 };
 

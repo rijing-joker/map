@@ -29,6 +29,20 @@ const saveRouteSchema = z.object({
     returnToStart: z.boolean(),
     path: z.array(coordinateSchema).min(2),
     waypoints: z.array(coordinateSchema).min(2),
+    steps: z
+      .array(
+        z.object({
+          id: z.string(),
+          instruction: z.string(),
+          road: z.string().optional(),
+          action: z.string().optional(),
+          assistantAction: z.string().optional(),
+          distanceM: z.number(),
+          durationS: z.number().optional(),
+          path: z.array(coordinateSchema)
+        })
+      )
+      .optional(),
     warnings: z.array(z.string())
   })
 });
@@ -116,7 +130,10 @@ export function createApp(options: AppOptions = {}) {
       return;
     }
 
-    const saved = store.saveRoute(parsed.data.route, parsed.data.name);
+    const saved = store.saveRoute(
+      { ...parsed.data.route, steps: parsed.data.route.steps ?? [] },
+      parsed.data.name
+    );
     response.status(201).json({ route: saved });
   });
 

@@ -8,7 +8,15 @@ const provider: WalkingRouteProvider = {
   async getWalkingRoute(points: Coordinate[]) {
     return {
       path: points,
-      distanceM: pathDistanceM(points)
+      distanceM: pathDistanceM(points),
+      steps: [
+        {
+          id: "mock-step",
+          instruction: "沿测试路线前行",
+          distanceM: Math.round(pathDistanceM(points)),
+          path: points
+        }
+      ]
     };
   }
 };

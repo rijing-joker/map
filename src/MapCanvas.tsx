@@ -9,6 +9,9 @@ type MapCanvasProps = {
   selectedRouteId: string | null;
   history: SavedRoute[];
   focusedHistoryId: string | null;
+  currentPosition: Coordinate | null;
+  activeStepIndex: number;
+  isNavigating: boolean;
   showHistory: boolean;
   onOriginChange: (origin: Coordinate) => void;
 };
@@ -23,6 +26,9 @@ export function MapCanvas({
   selectedRouteId,
   history,
   focusedHistoryId,
+  currentPosition,
+  activeStepIndex,
+  isNavigating,
   showHistory,
   onOriginChange
 }: MapCanvasProps) {
@@ -129,11 +135,24 @@ export function MapCanvas({
       const plannedLine = new AMap.Polyline({
         path: selected.path.map(toLngLat),
         strokeColor: "#0f8b8d",
-        strokeOpacity: 0.95,
-        strokeWeight: 8,
+        strokeOpacity: 0.82,
+        strokeWeight: 7,
         lineJoin: "round"
       });
       overlaysRef.current.push(plannedLine);
+
+      const activeStep = selected.steps[activeStepIndex];
+      if (activeStep?.path.length) {
+        overlaysRef.current.push(
+          new AMap.Polyline({
+            path: activeStep.path.map(toLngLat),
+            strokeColor: "#e25d2a",
+            strokeOpacity: 0.96,
+            strokeWeight: 9,
+            lineJoin: "round"
+          })
+        );
+      }
 
       selected.waypoints.forEach((waypoint, index) => {
         const isFirst = index === 0;
@@ -155,18 +174,43 @@ export function MapCanvas({
       });
     }
 
+    if (currentPosition) {
+      overlaysRef.current.push(
+        new AMap.Marker({
+          position: toLngLat(currentPosition),
+          anchor: "center",
+          title: "当前位置",
+          content: '<div class="map-point map-point-current">我</div>'
+        })
+      );
+    }
+
     map.add(overlaysRef.current);
     const visiblePoints = [
       origin,
       ...(selected?.path ?? []),
+      ...(currentPosition ? [currentPosition] : []),
       ...(showHistory ? history.flatMap((route) => route.path) : [])
     ];
-    if (visiblePoints.length > 1) {
+    if (isNavigating && currentPosition) {
+      map.setCenter(toLngLat(currentPosition));
+      map.setZoom(Math.max(map.getZoom?.() ?? 16, 16));
+    } else if (visiblePoints.length > 1) {
       map.setFitView(overlaysRef.current, false, [60, 60, 60, 420], 15);
     } else {
       map.setCenter(toLngLat(origin));
     }
-  }, [origin, candidates, selectedRouteId, history, focusedHistoryId, showHistory]);
+  }, [
+    origin,
+    candidates,
+    selectedRouteId,
+    history,
+    focusedHistoryId,
+    currentPosition,
+    activeStepIndex,
+    isNavigating,
+    showHistory
+  ]);
 
   return (
     <section className="map-surface" aria-label="路线地图">

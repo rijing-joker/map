@@ -1,8 +1,15 @@
 import { appendPath, parseAmapPolyline, pathDistanceM } from "./geometry";
-import type { Coordinate } from "../src/shared/types";
+import type { Coordinate, RouteInstructionStep } from "../src/shared/types";
 
 type AmapDirectionStep = {
+  instruction?: string;
+  orientation?: string;
+  road?: string;
+  distance?: string;
+  duration?: string;
   polyline?: string;
+  action?: string;
+  assistant_action?: string;
 };
 
 type AmapDirectionPath = {
@@ -22,6 +29,7 @@ type AmapWalkingResponse = {
 export type WalkingRoute = {
   path: Coordinate[];
   distanceM: number;
+  steps: RouteInstructionStep[];
 };
 
 export type WalkingRouteProvider = {
@@ -29,6 +37,19 @@ export type WalkingRouteProvider = {
 };
 
 const formatPoint = (point: Coordinate) => `${point.lng},${point.lat}`;
+const textValue = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean).join("、") || undefined;
+  }
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return String(value).trim() || undefined;
+};
 
 export class AmapWalkingClient implements WalkingRouteProvider {
   private lastRequestAt = 0;
@@ -45,14 +66,16 @@ export class AmapWalkingClient implements WalkingRouteProvider {
 
     let path: Coordinate[] = [];
     let distanceM = 0;
+    const steps: RouteInstructionStep[] = [];
 
     for (let index = 1; index < points.length; index += 1) {
       const leg = await this.getWalkingLeg(points[index - 1], points[index]);
       path = appendPath(path, leg.path);
       distanceM += leg.distanceM;
+      steps.push(...leg.steps);
     }
 
-    return { path, distanceM };
+    return { path, distanceM, steps };
   }
 
   private async getWalkingLeg(
@@ -88,13 +111,32 @@ export class AmapWalkingClient implements WalkingRouteProvider {
         throw new Error("AMap did not return a walking path.");
       }
 
-      const points =
-        bestPath.steps?.flatMap((step) => parseAmapPolyline(step.polyline ?? "")) ??
-        [];
+      const steps = (bestPath.steps ?? []).map((step, index) => {
+        const stepPath = parseAmapPolyline(step.polyline ?? "");
+        const distanceM = Number(step.distance) || pathDistanceM(stepPath);
+        const instruction = textValue(step.instruction);
+        const action = textValue(step.action);
+        return {
+          id: crypto.randomUUID(),
+          instruction:
+            instruction ||
+            action ||
+            `继续前行 ${Math.round(distanceM)} 米`,
+          road: textValue(step.road),
+          action,
+          assistantAction: textValue(step.assistant_action),
+          distanceM: Math.round(distanceM),
+          durationS: Number(step.duration) || undefined,
+          path: stepPath,
+          index
+        };
+      });
+
+      const points = steps.flatMap((step) => step.path);
       const path = points.length >= 2 ? points : [origin, destination];
       const distanceM = Number(bestPath.distance) || pathDistanceM(path);
 
-      return { path, distanceM };
+      return { path, distanceM, steps };
     } finally {
       this.lastRequestAt = Date.now();
       clearTimeout(timeout);

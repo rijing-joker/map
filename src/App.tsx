@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -7,12 +7,15 @@ import {
   LocateFixed,
   Loader2,
   MapPin,
+  Navigation,
   RefreshCw,
   Route,
   Save,
+  Square,
   Trash2,
   X
 } from "lucide-react";
+import { distanceToStepM, nearestStepIndex } from "./geo";
 import {
   clearHistoryRoutes,
   deleteHistoryRoute,
@@ -53,9 +56,14 @@ export default function App() {
   const [isPlanning, setIsPlanning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [currentPosition, setCurrentPosition] = useState<Coordinate | null>(null);
+  const [positionAccuracyM, setPositionAccuracyM] = useState<number | null>(null);
+  const [navigationStatus, setNavigationStatus] = useState<string | null>(null);
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   const selectedRoute = useMemo(
     () =>
@@ -74,6 +82,25 @@ export default function App() {
     (total, route) => total + route.distanceM,
     0
   );
+  const activeStepIndex = useMemo(
+    () =>
+      currentPosition && selectedRoute
+        ? nearestStepIndex(currentPosition, selectedRoute.steps)
+        : 0,
+    [currentPosition, selectedRoute]
+  );
+  const activeStep = selectedRoute?.steps[activeStepIndex] ?? null;
+  const activeStepDistanceM = currentPosition
+    ? distanceToStepM(currentPosition, activeStep ?? undefined)
+    : null;
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     Promise.all([getHistory(), getHealth()])
@@ -98,6 +125,7 @@ export default function App() {
         returnToStart,
         maxOverlapPct
       });
+      handleStopNavigation();
       setCandidates(result.candidates);
       setSelectedRouteId(result.candidates[0]?.id ?? null);
       setWarnings(result.warnings);
@@ -106,6 +134,60 @@ export default function App() {
     } finally {
       setIsPlanning(false);
     }
+  }
+
+  function handleStartNavigation() {
+    setError(null);
+    setNavigationStatus(null);
+
+    if (!selectedRoute) {
+      setError("请先生成并选择一条路线。");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setError("当前浏览器不支持定位，无法开始导航。");
+      return;
+    }
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+
+    setIsNavigating(true);
+    setNavigationStatus("正在获取当前位置...");
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        setCurrentPosition({
+          lng: Number(position.coords.longitude.toFixed(6)),
+          lat: Number(position.coords.latitude.toFixed(6))
+        });
+        setPositionAccuracyM(Math.round(position.coords.accuracy));
+        setNavigationStatus("导航中");
+      },
+      (geoError) => {
+        const messages: Record<number, string> = {
+          [geoError.PERMISSION_DENIED]: "定位权限被拒绝，无法导航。",
+          [geoError.POSITION_UNAVAILABLE]: "暂时无法获取当前位置。",
+          [geoError.TIMEOUT]: "定位超时，请稍后重试。"
+        };
+        setError(messages[geoError.code] ?? "导航定位失败。");
+        handleStopNavigation();
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 3000
+      }
+    );
+  }
+
+  function handleStopNavigation() {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setIsNavigating(false);
+    setNavigationStatus(null);
   }
 
   function handleLocate() {
@@ -219,6 +301,9 @@ export default function App() {
         selectedRouteId={selectedRoute?.id ?? null}
         history={history}
         focusedHistoryId={focusedHistoryId}
+        currentPosition={currentPosition}
+        activeStepIndex={activeStepIndex}
+        isNavigating={isNavigating}
         showHistory={showHistory}
         onOriginChange={setOrigin}
       />
@@ -402,6 +487,72 @@ export default function App() {
             )}
           </div>
         </section>
+
+        {selectedRoute ? (
+          <section className="control-section navigation-section">
+            <div className="section-title">
+              <h2>跟走导航</h2>
+              {isNavigating ? (
+                <button
+                  className="icon-button danger"
+                  onClick={handleStopNavigation}
+                  aria-label="结束导航"
+                  type="button"
+                >
+                  <Square size={16} />
+                </button>
+              ) : (
+                <button
+                  className="icon-button"
+                  onClick={handleStartNavigation}
+                  aria-label="开始导航"
+                  type="button"
+                >
+                  <Navigation size={17} />
+                </button>
+              )}
+            </div>
+            <div className="navigation-card">
+              <span className="navigation-state">
+                {navigationStatus ?? "选择路线后可开始跟走"}
+              </span>
+              <strong>{activeStep?.instruction ?? "暂无分步指令"}</strong>
+              <small>
+                {activeStep
+                  ? `${Math.round(activeStep.distanceM)} 米 · 第 ${activeStepIndex + 1}/${selectedRoute.steps.length || 1} 步`
+                  : "当前路线没有返回导航步骤"}
+              </small>
+              {activeStepDistanceM !== null ? (
+                <small>距当前步骤约 {activeStepDistanceM} 米</small>
+              ) : null}
+              {positionAccuracyM !== null ? (
+                <small>定位精度约 {positionAccuracyM} 米</small>
+              ) : null}
+            </div>
+            <div className="step-list">
+              {selectedRoute.steps.length === 0 ? (
+                <p className="empty-state">暂无导航步骤</p>
+              ) : (
+                selectedRoute.steps.slice(0, 12).map((step, index) => (
+                  <button
+                    className={`step-item ${
+                      index === activeStepIndex ? "active" : ""
+                    }`}
+                    key={step.id}
+                    type="button"
+                  >
+                    <span>{index + 1}</span>
+                    <strong>{step.instruction}</strong>
+                    <small>
+                      {Math.round(step.distanceM)} 米
+                      {step.road ? ` · ${step.road}` : ""}
+                    </small>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+        ) : null}
 
         <section className="control-section history-section">
           <div className="section-title">

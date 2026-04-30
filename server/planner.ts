@@ -144,6 +144,7 @@ export async function planRoutes(
         returnToStart: request.returnToStart,
         path,
         waypoints: shape.waypoints,
+        steps: route.steps ?? [],
         warnings: routeWarnings
       });
 
