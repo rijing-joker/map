@@ -37,6 +37,18 @@ export class RouteStore {
     return rows.map(rowToSavedRoute);
   }
 
+  getRoute(id: string): SavedRoute | null {
+    const row = this.db
+      .prepare(
+        `select id, name, distance_m, return_to_start, created_at, geometry_json, segment_keys_json
+         from routes
+         where id = ?`
+      )
+      .get(id) as RouteRow | undefined;
+
+    return row ? rowToSavedRoute(row) : null;
+  }
+
   saveRoute(route: RouteCandidate, name?: string): SavedRoute {
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
@@ -73,6 +85,18 @@ export class RouteStore {
   deleteRoute(id: string): boolean {
     const result = this.db.prepare("delete from routes where id = ?").run(id);
     return result.changes > 0;
+  }
+
+  renameRoute(id: string, name: string): SavedRoute | null {
+    const result = this.db
+      .prepare("update routes set name = ? where id = ?")
+      .run(name, id);
+    return result.changes > 0 ? this.getRoute(id) : null;
+  }
+
+  clearRoutes(): number {
+    const result = this.db.prepare("delete from routes").run();
+    return Number(result.changes);
   }
 
   close(): void {

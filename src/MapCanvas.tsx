@@ -8,6 +8,7 @@ type MapCanvasProps = {
   candidates: RouteCandidate[];
   selectedRouteId: string | null;
   history: SavedRoute[];
+  focusedHistoryId: string | null;
   showHistory: boolean;
   onOriginChange: (origin: Coordinate) => void;
 };
@@ -21,6 +22,7 @@ export function MapCanvas({
   candidates,
   selectedRouteId,
   history,
+  focusedHistoryId,
   showHistory,
   onOriginChange
 }: MapCanvasProps) {
@@ -85,17 +87,19 @@ export function MapCanvas({
     const originMarker = new AMap.Marker({
       position: toLngLat(origin),
       anchor: "bottom-center",
-      title: "起点"
+      title: "起点",
+      content: '<div class="map-point map-point-origin">起</div>'
     });
     overlaysRef.current.push(originMarker);
 
     if (showHistory) {
       for (const route of history) {
+        const isFocused = route.id === focusedHistoryId;
         const historyLine = new AMap.Polyline({
           path: route.path.map(toLngLat),
-          strokeColor: "#8d99a6",
-          strokeOpacity: 0.28,
-          strokeWeight: 5,
+          strokeColor: isFocused ? "#b7791f" : "#8d99a6",
+          strokeOpacity: isFocused ? 0.82 : 0.26,
+          strokeWeight: isFocused ? 7 : 5,
           lineJoin: "round"
         });
         overlaysRef.current.push(historyLine);
@@ -105,6 +109,22 @@ export function MapCanvas({
     const selected =
       candidates.find((candidate) => candidate.id === selectedRouteId) ??
       candidates[0];
+
+    for (const candidate of candidates) {
+      if (candidate.id === selected?.id) {
+        continue;
+      }
+
+      const candidateLine = new AMap.Polyline({
+        path: candidate.path.map(toLngLat),
+        strokeColor: "#2f9ea3",
+        strokeOpacity: 0.22,
+        strokeWeight: 5,
+        lineJoin: "round"
+      });
+      overlaysRef.current.push(candidateLine);
+    }
+
     if (selected) {
       const plannedLine = new AMap.Polyline({
         path: selected.path.map(toLngLat),
@@ -114,6 +134,25 @@ export function MapCanvas({
         lineJoin: "round"
       });
       overlaysRef.current.push(plannedLine);
+
+      selected.waypoints.forEach((waypoint, index) => {
+        const isFirst = index === 0;
+        const isLast = index === selected.waypoints.length - 1;
+        const label = isFirst ? "起" : isLast ? (selected.returnToStart ? "回" : "终") : "途";
+        const markerClass = isFirst
+          ? "map-point-origin"
+          : isLast
+            ? "map-point-end"
+            : "map-point-waypoint";
+        overlaysRef.current.push(
+          new AMap.Marker({
+            position: toLngLat(waypoint),
+            anchor: "center",
+            title: label,
+            content: `<div class="map-point ${markerClass}">${label}</div>`
+          })
+        );
+      });
     }
 
     map.add(overlaysRef.current);
@@ -127,7 +166,7 @@ export function MapCanvas({
     } else {
       map.setCenter(toLngLat(origin));
     }
-  }, [origin, candidates, selectedRouteId, history, showHistory]);
+  }, [origin, candidates, selectedRouteId, history, focusedHistoryId, showHistory]);
 
   return (
     <section className="map-surface" aria-label="路线地图">

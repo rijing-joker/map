@@ -1,19 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Check,
+  Edit3,
   History,
+  LocateFixed,
   Loader2,
   MapPin,
   RefreshCw,
   Route,
   Save,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import {
+  clearHistoryRoutes,
   deleteHistoryRoute,
   getHealth,
   getHistory,
   planRoute,
+  renameHistoryRoute,
   saveRoute
 } from "./api";
 import { MapCanvas } from "./MapCanvas";
@@ -40,10 +46,15 @@ export default function App() {
   const [history, setHistory] = useState<SavedRoute[]>([]);
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [focusedHistoryId, setFocusedHistoryId] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [locationStatus, setLocationStatus] = useState<string | null>(null);
   const [isPlanning, setIsPlanning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
+  const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
 
   const selectedRoute = useMemo(
@@ -52,6 +63,16 @@ export default function App() {
       candidates[0] ??
       null,
     [candidates, selectedRouteId]
+  );
+
+  const selectedRouteDeviationPct = selectedRoute
+    ? ((selectedRoute.distanceM - selectedRoute.targetDistanceM) /
+        selectedRoute.targetDistanceM) *
+      100
+    : 0;
+  const totalHistoryDistanceM = history.reduce(
+    (total, route) => total + route.distanceM,
+    0
   );
 
   useEffect(() => {
@@ -87,6 +108,44 @@ export default function App() {
     }
   }
 
+  function handleLocate() {
+    setError(null);
+    setLocationStatus(null);
+
+    if (!navigator.geolocation) {
+      setError("当前浏览器不支持定位，请继续手动点地图或输入坐标。");
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationStatus("正在请求浏览器定位...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setOrigin({
+          lng: Number(position.coords.longitude.toFixed(6)),
+          lat: Number(position.coords.latitude.toFixed(6))
+        });
+        setLocationStatus(`已定位，精度约 ${Math.round(position.coords.accuracy)} 米`);
+        setIsLocating(false);
+      },
+      (geoError) => {
+        const messages: Record<number, string> = {
+          [geoError.PERMISSION_DENIED]: "定位权限被拒绝。",
+          [geoError.POSITION_UNAVAILABLE]: "暂时无法获取当前位置。",
+          [geoError.TIMEOUT]: "定位超时，请稍后重试。"
+        };
+        setError(messages[geoError.code] ?? "定位失败。");
+        setLocationStatus(null);
+        setIsLocating(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 60000
+      }
+    );
+  }
+
   async function handleSave() {
     if (!selectedRoute) {
       return;
@@ -108,8 +167,48 @@ export default function App() {
   }
 
   async function handleDeleteHistory(id: string) {
-    await deleteHistoryRoute(id);
-    setHistory((routes) => routes.filter((route) => route.id !== id));
+    try {
+      await deleteHistoryRoute(id);
+      setHistory((routes) => routes.filter((route) => route.id !== id));
+      if (focusedHistoryId === id) {
+        setFocusedHistoryId(null);
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "删除失败。");
+    }
+  }
+
+  async function handleRenameHistory(id: string) {
+    const name = editingHistoryName.trim();
+    if (!name) {
+      setError("路线名称不能为空。");
+      return;
+    }
+
+    try {
+      const renamed = await renameHistoryRoute(id, name);
+      setHistory((routes) =>
+        routes.map((route) => (route.id === id ? renamed : route))
+      );
+      setEditingHistoryId(null);
+      setEditingHistoryName("");
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "重命名失败。");
+    }
+  }
+
+  async function handleClearHistory() {
+    if (history.length === 0 || !window.confirm("清空全部历史路线？")) {
+      return;
+    }
+
+    try {
+      await clearHistoryRoutes();
+      setHistory([]);
+      setFocusedHistoryId(null);
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : "清空失败。");
+    }
   }
 
   return (
@@ -119,6 +218,7 @@ export default function App() {
         candidates={candidates}
         selectedRouteId={selectedRoute?.id ?? null}
         history={history}
+        focusedHistoryId={focusedHistoryId}
         showHistory={showHistory}
         onOriginChange={setOrigin}
       />
@@ -133,10 +233,21 @@ export default function App() {
         </header>
 
         <section className="control-section">
-          <label className="field-label" htmlFor="lng">
-            <MapPin size={16} />
-            起点坐标
-          </label>
+          <div className="field-label">
+            <span className="label-title">
+              <MapPin size={16} />
+              起点坐标
+            </span>
+            <button
+              className="mini-action"
+              onClick={handleLocate}
+              disabled={isLocating}
+              type="button"
+            >
+              {isLocating ? <Loader2 className="spin" size={15} /> : <LocateFixed size={15} />}
+              定位
+            </button>
+          </div>
           <div className="coordinate-grid">
             <input
               id="lng"
@@ -163,6 +274,7 @@ export default function App() {
               }
             />
           </div>
+          {locationStatus ? <p className="location-status">{locationStatus}</p> : null}
 
           <label className="field-label" htmlFor="distance">
             目标距离
@@ -245,6 +357,26 @@ export default function App() {
               </button>
             ) : null}
           </div>
+          {selectedRoute ? (
+            <div className="route-summary" aria-label="当前路线摘要">
+              <div>
+                <span>实际距离</span>
+                <strong>{formatDistance(selectedRoute.distanceM)}</strong>
+              </div>
+              <div>
+                <span>偏差</span>
+                <strong>{selectedRouteDeviationPct > 0 ? "+" : ""}{selectedRouteDeviationPct.toFixed(1)}%</strong>
+              </div>
+              <div>
+                <span>重复</span>
+                <strong>{selectedRoute.overlapPct}%</strong>
+              </div>
+              <div>
+                <span>评分</span>
+                <strong>{selectedRoute.score}</strong>
+              </div>
+            </div>
+          ) : null}
           <div className="route-list">
             {candidates.length === 0 ? (
               <p className="empty-state">暂无候选</p>
@@ -262,6 +394,9 @@ export default function App() {
                   <small>
                     重复 {candidate.overlapPct}% · 评分 {candidate.score}
                   </small>
+                  {candidate.warnings.length > 0 ? (
+                    <em>{candidate.warnings.join("，")}</em>
+                  ) : null}
                 </button>
               ))
             )}
@@ -271,23 +406,103 @@ export default function App() {
         <section className="control-section history-section">
           <div className="section-title">
             <h2>历史路线</h2>
-            <History size={18} />
+            <div className="section-actions">
+              <History size={18} />
+              {history.length > 0 ? (
+                <button
+                  className="icon-button subtle"
+                  onClick={handleClearHistory}
+                  aria-label="清空历史路线"
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="history-stats">
+            <span>{history.length} 条</span>
+            <span>累计 {formatDistance(totalHistoryDistanceM)}</span>
           </div>
           <div className="history-list">
             {history.length === 0 ? (
               <p className="empty-state">暂无历史</p>
             ) : (
               history.slice(0, 8).map((route) => (
-                <div className="history-item" key={route.id}>
-                  <span>{route.name}</span>
-                  <small>{formatDistance(route.distanceM)}</small>
-                  <button
-                    className="icon-button subtle"
-                    onClick={() => void handleDeleteHistory(route.id)}
-                    aria-label={`删除 ${route.name}`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                <div
+                  className={`history-item ${
+                    focusedHistoryId === route.id ? "focused" : ""
+                  }`}
+                  key={route.id}
+                >
+                  {editingHistoryId === route.id ? (
+                    <>
+                      <input
+                        className="history-name-input"
+                        value={editingHistoryName}
+                        onChange={(event) =>
+                          setEditingHistoryName(event.target.value)
+                        }
+                        aria-label="历史路线名称"
+                      />
+                      <button
+                        className="icon-button subtle"
+                        onClick={() => void handleRenameHistory(route.id)}
+                        aria-label="保存名称"
+                        type="button"
+                      >
+                        <Check size={16} />
+                      </button>
+                      <button
+                        className="icon-button subtle"
+                        onClick={() => {
+                          setEditingHistoryId(null);
+                          setEditingHistoryName("");
+                        }}
+                        aria-label="取消重命名"
+                        type="button"
+                      >
+                        <X size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="history-main"
+                        onClick={() =>
+                          setFocusedHistoryId((current) =>
+                            current === route.id ? null : route.id
+                          )
+                        }
+                        type="button"
+                      >
+                        <span>{route.name}</span>
+                        <small>
+                          {formatDistance(route.distanceM)} ·{" "}
+                          {route.returnToStart ? "环线" : "路线"}
+                        </small>
+                      </button>
+                      <button
+                        className="icon-button subtle"
+                        onClick={() => {
+                          setEditingHistoryId(route.id);
+                          setEditingHistoryName(route.name);
+                        }}
+                        aria-label={`重命名 ${route.name}`}
+                        type="button"
+                      >
+                        <Edit3 size={16} />
+                      </button>
+                      <button
+                        className="icon-button subtle"
+                        onClick={() => void handleDeleteHistory(route.id)}
+                        aria-label={`删除 ${route.name}`}
+                        type="button"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
                 </div>
               ))
             )}

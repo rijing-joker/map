@@ -58,3 +58,24 @@ export async function deleteHistoryRoute(id: string): Promise<void> {
     await parseResponse(response);
   }
 }
+
+export async function renameHistoryRoute(
+  id: string,
+  name: string
+): Promise<SavedRoute> {
+  const response = await fetch(`/api/routes/history/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name })
+  });
+  const data = await parseResponse<{ route: SavedRoute }>(response);
+  return data.route;
+}
+
+export async function clearHistoryRoutes(): Promise<number> {
+  const response = await fetch("/api/routes/history", {
+    method: "DELETE"
+  });
+  const data = await parseResponse<{ deleted: number }>(response);
+  return data.deleted;
+}

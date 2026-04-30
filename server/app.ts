@@ -33,6 +33,10 @@ const saveRouteSchema = z.object({
   })
 });
 
+const renameRouteSchema = z.object({
+  name: z.string().trim().min(1).max(80)
+});
+
 type AppOptions = {
   store?: RouteStore;
   provider?: WalkingRouteProvider;
@@ -99,6 +103,10 @@ export function createApp(options: AppOptions = {}) {
     response.json({ routes: store.listRoutes() });
   });
 
+  app.delete("/api/routes/history", (_request, response) => {
+    response.json({ deleted: store.clearRoutes() });
+  });
+
   app.post("/api/routes/save", (request, response) => {
     const parsed = saveRouteSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -119,6 +127,23 @@ export function createApp(options: AppOptions = {}) {
       return;
     }
     response.status(204).send();
+  });
+
+  app.put("/api/routes/history/:id", (request, response) => {
+    const parsed = renameRouteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json(
+        errorResponse("invalid_request", "路线名称不能为空，且不能超过 80 个字符。", parsed.error.flatten())
+      );
+      return;
+    }
+
+    const route = store.renameRoute(request.params.id, parsed.data.name);
+    if (!route) {
+      response.status(404).json(errorResponse("not_found", "没有找到这条历史路线。"));
+      return;
+    }
+    response.json({ route });
   });
 
   return { app, store };

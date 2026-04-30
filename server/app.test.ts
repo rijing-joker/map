@@ -70,7 +70,7 @@ describe("route API", () => {
     expect(body.amapConfigured).toBe(true);
   });
 
-  it("plans, saves, lists, and deletes a route", async () => {
+  it("plans, saves, renames, lists, and deletes a route", async () => {
     const store = makeStore();
     const planResponse = await callApi(
       "/api/routes/plan",
@@ -112,6 +112,22 @@ describe("route API", () => {
     expect(saveResponse.status).toBe(201);
     expect(saveBody.route.name).toBe("morning loop");
 
+    const renameResponse = await callApi(
+      `/api/routes/history/${saveBody.route.id}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "renamed loop" })
+      },
+      store
+    );
+    const renameBody = (await renameResponse.json()) as {
+      route: SavedRoute;
+    };
+
+    expect(renameResponse.status).toBe(200);
+    expect(renameBody.route.name).toBe("renamed loop");
+
     const historyResponse = await callApi("/api/routes/history", undefined, store);
     const historyBody = (await historyResponse.json()) as {
       routes: SavedRoute[];
@@ -126,6 +142,43 @@ describe("route API", () => {
     );
 
     expect(deleteResponse.status).toBe(204);
+    expect(store.listRoutes()).toHaveLength(0);
+  });
+
+  it("clears all history routes", async () => {
+    const store = makeStore();
+    const planResponse = await callApi(
+      "/api/routes/plan",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: { lng: 121.4737, lat: 31.2304 },
+          distanceKm: 5,
+          returnToStart: true,
+          maxOverlapPct: 25
+        })
+      },
+      store
+    );
+    const planBody = (await planResponse.json()) as {
+      candidates: RouteCandidate[];
+    };
+
+    store.saveRoute(planBody.candidates[0], "one");
+    store.saveRoute(planBody.candidates[0], "two");
+
+    const clearResponse = await callApi(
+      "/api/routes/history",
+      { method: "DELETE" },
+      store
+    );
+    const clearBody = (await clearResponse.json()) as {
+      deleted: number;
+    };
+
+    expect(clearResponse.status).toBe(200);
+    expect(clearBody.deleted).toBe(2);
     expect(store.listRoutes()).toHaveLength(0);
   });
 });
