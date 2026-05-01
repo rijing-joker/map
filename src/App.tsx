@@ -16,6 +16,7 @@ import {
   X
 } from "lucide-react";
 import {
+  distanceM,
   formatAccuracy,
   getNavigationProgress,
   isUsableLocationAccuracy,
@@ -46,6 +47,10 @@ import type {
 import "./styles.css";
 
 const DEFAULT_ORIGIN: Coordinate = { lng: 121.4737, lat: 31.2304 };
+const DISTANCE_PRESETS_KM = [3, 5, 8, 10];
+const SIMULATION_TICK_MS = 700;
+const SIMULATION_MIN_STEP_M = 55;
+const SIMULATION_TARGET_TICKS = 30;
 
 type WakeLockSentinelLike = {
   release: () => Promise<void>;
@@ -64,6 +69,78 @@ type WakeLockNavigator = Navigator & {
 
 function formatDistance(distanceM: number): string {
   return `${(distanceM / 1000).toFixed(2)} km`;
+}
+
+function formatDuration(durationS: number): string {
+  const minutes = Math.max(1, Math.round(durationS / 60));
+  if (minutes < 60) {
+    return `${minutes} 分钟`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0
+    ? `${hours} 小时`
+    : `${hours} 小时 ${remainingMinutes} 分钟`;
+}
+
+function routeDurationS(route: RouteCandidate): number {
+  const stepDurationS = route.steps.reduce(
+    (total, step) => total + (step.durationS ?? 0),
+    0
+  );
+  return stepDurationS > 0 ? stepDurationS : route.distanceM / 1.2;
+}
+
+function stepDurationLabel(durationS?: number): string {
+  return durationS ? ` · ${formatDuration(durationS)}` : "";
+}
+
+function pathLengthM(path: Coordinate[]): number {
+  let total = 0;
+  for (let index = 1; index < path.length; index += 1) {
+    total += distanceM(path[index - 1], path[index]);
+  }
+  return total;
+}
+
+function pointAlongPath(path: Coordinate[], targetDistanceM: number): Coordinate | null {
+  if (path.length === 0) {
+    return null;
+  }
+
+  if (path.length === 1 || targetDistanceM <= 0) {
+    return path[0];
+  }
+
+  let walkedM = 0;
+  for (let index = 1; index < path.length; index += 1) {
+    const start = path[index - 1];
+    const end = path[index];
+    const segmentM = distanceM(start, end);
+    if (walkedM + segmentM >= targetDistanceM) {
+      const ratio = segmentM === 0 ? 0 : (targetDistanceM - walkedM) / segmentM;
+      return {
+        lng: Number((start.lng + (end.lng - start.lng) * ratio).toFixed(6)),
+        lat: Number((start.lat + (end.lat - start.lat) * ratio).toFixed(6))
+      };
+    }
+    walkedM += segmentM;
+  }
+
+  return path[path.length - 1];
+}
+
+function routeSaveKey(route: RouteCandidate): string {
+  const first = route.path[0];
+  const last = route.path[route.path.length - 1];
+  return [
+    route.id,
+    route.distanceM,
+    route.targetDistanceM,
+    first ? `${first.lng},${first.lat}` : "",
+    last ? `${last.lng},${last.lat}` : ""
+  ].join("|");
 }
 
 function formatLocationAccuracy(accuracyM: number): string {
@@ -97,6 +174,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
   const [currentPosition, setCurrentPosition] = useState<Coordinate | null>(null);
   const [positionAccuracyM, setPositionAccuracyM] = useState<number | null>(null);
   const [navigationStatus, setNavigationStatus] = useState<string | null>(null);
@@ -105,9 +183,14 @@ export default function App() {
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
+  const [savedRouteKey, setSavedRouteKey] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const stopLocationWatchRef = useRef<(() => void) | null>(null);
+  const simulationTimerRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const activeStepButtonRef = useRef<HTMLButtonElement | null>(null);
+  const routeResultsRef = useRef<HTMLElement | null>(null);
+  const navigationSectionRef = useRef<HTMLElement | null>(null);
 
   const selectedRoute = useMemo(
     () =>
@@ -122,6 +205,10 @@ export default function App() {
         selectedRoute.targetDistanceM) *
       100
     : 0;
+  const selectedRouteDurationS = selectedRoute ? routeDurationS(selectedRoute) : 0;
+  const selectedRouteSaveKey = selectedRoute ? routeSaveKey(selectedRoute) : null;
+  const selectedRouteSaved =
+    selectedRouteSaveKey !== null && selectedRouteSaveKey === savedRouteKey;
   const totalHistoryDistanceM = history.reduce(
     (total, route) => total + route.distanceM,
     0
@@ -163,11 +250,18 @@ export default function App() {
   useEffect(() => {
     return () => {
       stopLocationWatchRef.current?.();
+      if (simulationTimerRef.current !== null) {
+        window.clearInterval(simulationTimerRef.current);
+      }
       void wakeLockRef.current?.release().catch(() => undefined);
     };
   }, []);
 
   useEffect(() => {
+    if (isNavigating && window.matchMedia("(max-width: 860px)").matches) {
+      return;
+    }
+
     activeStepButtonRef.current?.scrollIntoView({
       block: "nearest",
       behavior: isNavigating ? "smooth" : "auto"
@@ -178,7 +272,7 @@ export default function App() {
     let disposed = false;
 
     async function syncWakeLock() {
-      if (!isNavigating) {
+      if (!isNavigating || isSimulating) {
         await wakeLockRef.current?.release().catch(() => undefined);
         wakeLockRef.current = null;
         setWakeLockStatus(null);
@@ -197,7 +291,7 @@ export default function App() {
 
       try {
         const lock = await wakeLock.request("screen");
-        if (disposed || !isNavigating) {
+        if (disposed || !isNavigating || isSimulating) {
           await lock.release().catch(() => undefined);
           return;
         }
@@ -210,7 +304,7 @@ export default function App() {
             if (wakeLockRef.current === lock) {
               wakeLockRef.current = null;
             }
-            if (!disposed && isNavigating && wakeLockRef.current === null) {
+            if (!disposed && isNavigating && !isSimulating && wakeLockRef.current === null) {
               setWakeLockStatus("屏幕常亮已被系统暂停");
             }
           },
@@ -236,7 +330,7 @@ export default function App() {
       disposed = true;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isNavigating]);
+  }, [isNavigating, isSimulating]);
 
   useEffect(() => {
     Promise.all([getHistory(), getHealth()])
@@ -253,6 +347,7 @@ export default function App() {
     setIsPlanning(true);
     setError(null);
     setWarnings([]);
+    setSaveStatus(null);
 
     try {
       const result: PlanRouteResponse = await planRoute({
@@ -265,6 +360,15 @@ export default function App() {
       setCandidates(result.candidates);
       setSelectedRouteId(result.candidates[0]?.id ?? null);
       setWarnings(result.warnings);
+      setSavedRouteKey(null);
+      if (window.matchMedia("(max-width: 860px)").matches) {
+        window.setTimeout(() => {
+          routeResultsRef.current?.scrollIntoView({
+            block: "start",
+            behavior: "smooth"
+          });
+        }, 120);
+      }
     } catch (planError) {
       setError(planError instanceof Error ? planError.message : "路线规划失败。");
     } finally {
@@ -274,6 +378,19 @@ export default function App() {
 
   function handleFocusNavigationMap() {
     setMapFocusRequest((request) => request + 1);
+  }
+
+  function scrollNavigationSectionIntoView() {
+    if (!window.matchMedia("(max-width: 860px)").matches) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      navigationSectionRef.current?.scrollIntoView({
+        block: "start",
+        behavior: "smooth"
+      });
+    }, 120);
   }
 
   function handleNavigationLocation(location: LocationFix) {
@@ -334,10 +451,16 @@ export default function App() {
     }
 
     stopLocationWatchRef.current?.();
+    if (simulationTimerRef.current !== null) {
+      window.clearInterval(simulationTimerRef.current);
+      simulationTimerRef.current = null;
+    }
+    setIsSimulating(false);
     setIsNavigating(true);
     setCurrentPosition(null);
     setPositionAccuracyM(null);
     setNavigationStatus("正在通过高德在线定位获取当前位置...");
+    scrollNavigationSectionIntoView();
     stopLocationWatchRef.current = startLocationTracking({
       onLocation: handleNavigationLocation,
       onError: (locationError) => {
@@ -347,12 +470,75 @@ export default function App() {
     });
   }
 
+  function handleStartSimulation() {
+    setError(null);
+    setNavigationStatus(null);
+
+    if (!selectedRoute) {
+      setError("请先生成并选择一条路线。");
+      return;
+    }
+
+    if (selectedRoute.path.length < 2) {
+      setError("当前路线缺少可模拟的轨迹。");
+      return;
+    }
+
+    stopLocationWatchRef.current?.();
+    stopLocationWatchRef.current = null;
+    if (simulationTimerRef.current !== null) {
+      window.clearInterval(simulationTimerRef.current);
+    }
+
+    const path = selectedRoute.path;
+    const totalM = pathLengthM(path);
+    const stepM = Math.max(SIMULATION_MIN_STEP_M, totalM / SIMULATION_TARGET_TICKS);
+    let traveledM = 0;
+
+    setIsSimulating(true);
+    setIsNavigating(true);
+    setCurrentPosition(path[0]);
+    setPositionAccuracyM(8);
+    setNavigationStatus("模拟跟走中，正在沿当前路线预演...");
+    setMapFocusRequest((request) => request + 1);
+    scrollNavigationSectionIntoView();
+
+    simulationTimerRef.current = window.setInterval(() => {
+      traveledM = Math.min(totalM, traveledM + stepM);
+      const position = pointAlongPath(path, traveledM);
+      if (position) {
+        setCurrentPosition(position);
+      }
+
+      const remainingM = Math.max(0, totalM - traveledM);
+      setNavigationStatus(
+        remainingM <= 35
+          ? "模拟已到达终点"
+          : `模拟跟走中，剩余 ${formatDistance(remainingM)}`
+      );
+
+      if (traveledM >= totalM) {
+        if (simulationTimerRef.current !== null) {
+          window.clearInterval(simulationTimerRef.current);
+          simulationTimerRef.current = null;
+        }
+        setIsNavigating(false);
+        setIsSimulating(false);
+      }
+    }, SIMULATION_TICK_MS);
+  }
+
   function handleStopNavigation() {
     stopLocationWatchRef.current?.();
     stopLocationWatchRef.current = null;
+    if (simulationTimerRef.current !== null) {
+      window.clearInterval(simulationTimerRef.current);
+      simulationTimerRef.current = null;
+    }
     void wakeLockRef.current?.release().catch(() => undefined);
     wakeLockRef.current = null;
     setIsNavigating(false);
+    setIsSimulating(false);
     setNavigationStatus(null);
     setWakeLockStatus(null);
     setCurrentPosition(null);
@@ -400,12 +586,16 @@ export default function App() {
 
     setIsSaving(true);
     setError(null);
+    setSaveStatus(null);
     try {
       const saved = await saveRoute(
         selectedRoute,
         `${formatDistance(selectedRoute.distanceM)} ${selectedRoute.returnToStart ? "环线" : "路线"}`
       );
       setHistory((routes) => [saved, ...routes]);
+      setFocusedHistoryId(saved.id);
+      setSavedRouteKey(routeSaveKey(selectedRoute));
+      setSaveStatus("已保存到历史路线");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "保存失败。");
     } finally {
@@ -413,11 +603,15 @@ export default function App() {
     }
   }
 
-  async function handleDeleteHistory(id: string) {
+  async function handleDeleteHistory(route: SavedRoute) {
+    if (!window.confirm(`删除「${route.name}」？`)) {
+      return;
+    }
+
     try {
-      await deleteHistoryRoute(id);
-      setHistory((routes) => routes.filter((route) => route.id !== id));
-      if (focusedHistoryId === id) {
+      await deleteHistoryRoute(route.id);
+      setHistory((routes) => routes.filter((item) => item.id !== route.id));
+      if (focusedHistoryId === route.id) {
         setFocusedHistoryId(null);
       }
     } catch (deleteError) {
@@ -541,6 +735,18 @@ export default function App() {
             disabled={isPlanning}
             onChange={(event) => setDistanceKm(Number(event.target.value))}
           />
+          <div className="preset-row" aria-label="常用距离">
+            {DISTANCE_PRESETS_KM.map((preset) => (
+              <button
+                className={`preset-chip ${distanceKm === preset ? "selected" : ""}`}
+                key={preset}
+                onClick={() => setDistanceKm(preset)}
+                type="button"
+              >
+                {preset} km
+              </button>
+            ))}
+          </div>
 
           <label className="field-label" htmlFor="overlap">
             最大重复率
@@ -599,14 +805,33 @@ export default function App() {
               {warning}
             </p>
           ))}
+          {saveStatus ? (
+            <p className="notice success">
+              <Check size={16} />
+              {saveStatus}
+            </p>
+          ) : null}
         </section>
 
-        <section className="control-section">
+        <section className="control-section route-results-section" ref={routeResultsRef}>
           <div className="section-title">
             <h2>候选路线</h2>
             {selectedRoute ? (
-              <button className="icon-button" onClick={handleSave} disabled={isSaving}>
-                {isSaving ? <Loader2 className="spin" size={17} /> : <Save size={17} />}
+              <button
+                className={`icon-button ${selectedRouteSaved ? "saved" : ""}`}
+                onClick={handleSave}
+                disabled={isSaving || selectedRouteSaved}
+                aria-label={selectedRouteSaved ? "已保存" : "保存路线"}
+                title={selectedRouteSaved ? "已保存" : "保存路线"}
+                type="button"
+              >
+                {isSaving ? (
+                  <Loader2 className="spin" size={17} />
+                ) : selectedRouteSaved ? (
+                  <Check size={17} />
+                ) : (
+                  <Save size={17} />
+                )}
               </button>
             ) : null}
           </div>
@@ -617,12 +842,20 @@ export default function App() {
                 <strong>{formatDistance(selectedRoute.distanceM)}</strong>
               </div>
               <div>
+                <span>预计用时</span>
+                <strong>{formatDuration(selectedRouteDurationS)}</strong>
+              </div>
+              <div>
                 <span>偏差</span>
                 <strong>{selectedRouteDeviationPct > 0 ? "+" : ""}{selectedRouteDeviationPct.toFixed(1)}%</strong>
               </div>
               <div>
                 <span>重复</span>
                 <strong>{selectedRoute.overlapPct}%</strong>
+              </div>
+              <div>
+                <span>步骤</span>
+                <strong>{selectedRoute.steps.length || "--"}</strong>
               </div>
               <div>
                 <span>评分</span>
@@ -643,11 +876,13 @@ export default function App() {
                   onClick={() => {
                     handleStopNavigation();
                     setSelectedRouteId(candidate.id);
+                    setSaveStatus(null);
                   }}
                 >
                   <span>{candidate.name}</span>
                   <strong>{formatDistance(candidate.distanceM)}</strong>
                   <small>
+                    {formatDuration(routeDurationS(candidate))} · {candidate.steps.length || 0} 步 ·
                     重复 {candidate.overlapPct}% · 评分 {candidate.score}
                   </small>
                   {candidate.warnings.length > 0 ? (
@@ -660,7 +895,10 @@ export default function App() {
         </section>
 
         {selectedRoute ? (
-          <section className="control-section navigation-section">
+          <section
+            className="control-section navigation-section"
+            ref={navigationSectionRef}
+          >
             <div className="section-title">
               <h2>跟走导航</h2>
               <div className="navigation-actions">
@@ -684,14 +922,26 @@ export default function App() {
                     </button>
                   </>
                 ) : (
-                  <button
-                    className="icon-button"
-                    onClick={handleStartNavigation}
-                    aria-label="开始导航"
-                    type="button"
-                  >
-                    <Navigation size={17} />
-                  </button>
+                  <>
+                    <button
+                      className="navigation-command secondary"
+                      onClick={handleStartSimulation}
+                      aria-label="模拟跟走"
+                      type="button"
+                    >
+                      <RefreshCw size={16} />
+                      模拟跟走
+                    </button>
+                    <button
+                      className="navigation-command"
+                      onClick={handleStartNavigation}
+                      aria-label="开始导航"
+                      type="button"
+                    >
+                      <Navigation size={17} />
+                      开始跟走
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -705,7 +955,7 @@ export default function App() {
               <strong>{activeStep?.instruction ?? "暂无分步指令"}</strong>
               <small>
                 {activeStep
-                  ? `${Math.round(activeStep.distanceM)} 米 · 第 ${activeStepIndex + 1}/${selectedRoute.steps.length || 1} 步`
+                  ? `${Math.round(activeStep.distanceM)} 米${stepDurationLabel(activeStep.durationS)} · 第 ${activeStepIndex + 1}/${selectedRoute.steps.length || 1} 步`
                   : "当前路线没有返回导航步骤"}
               </small>
               {nextStep ? <small>下一步：{nextStep.instruction}</small> : null}
@@ -722,7 +972,7 @@ export default function App() {
                   <strong>
                     {navigationProgress
                       ? formatDistance(navigationProgress.remainingDistanceM)
-                      : "--"}
+                      : formatDistance(selectedRoute.distanceM)}
                   </strong>
                 </div>
                 <div>
@@ -730,7 +980,7 @@ export default function App() {
                   <strong>
                     {navigationProgress
                       ? `${navigationProgress.progressPct.toFixed(0)}%`
-                      : "--"}
+                      : "0%"}
                   </strong>
                 </div>
                 <div>
@@ -768,6 +1018,7 @@ export default function App() {
                     <strong>{step.instruction}</strong>
                     <small>
                       {Math.round(step.distanceM)} 米
+                      {stepDurationLabel(step.durationS)}
                       {step.road ? ` · ${step.road}` : ""}
                     </small>
                   </button>
@@ -817,7 +1068,17 @@ export default function App() {
                         onChange={(event) =>
                           setEditingHistoryName(event.target.value)
                         }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            void handleRenameHistory(route.id);
+                          }
+                          if (event.key === "Escape") {
+                            setEditingHistoryId(null);
+                            setEditingHistoryName("");
+                          }
+                        }}
                         aria-label="历史路线名称"
+                        autoFocus
                       />
                       <button
                         className="icon-button subtle"
@@ -869,7 +1130,7 @@ export default function App() {
                       </button>
                       <button
                         className="icon-button subtle"
-                        onClick={() => void handleDeleteHistory(route.id)}
+                        onClick={() => void handleDeleteHistory(route)}
                         aria-label={`删除 ${route.name}`}
                         type="button"
                       >
