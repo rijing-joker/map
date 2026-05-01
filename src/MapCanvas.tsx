@@ -12,6 +12,7 @@ type MapCanvasProps = {
   currentPosition: Coordinate | null;
   activeStepIndex: number;
   isNavigating: boolean;
+  focusRequest: number;
   showHistory: boolean;
   onOriginChange: (origin: Coordinate) => void;
 };
@@ -29,6 +30,7 @@ export function MapCanvas({
   currentPosition,
   activeStepIndex,
   isNavigating,
+  focusRequest,
   showHistory,
   onOriginChange
 }: MapCanvasProps) {
@@ -211,6 +213,28 @@ export function MapCanvas({
     isNavigating,
     showHistory
   ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || focusRequest === 0) {
+      return;
+    }
+
+    if (currentPosition) {
+      map.setCenter(toLngLat(currentPosition));
+      map.setZoom(Math.max(map.getZoom?.() ?? 17, 17));
+      return;
+    }
+
+    const selected =
+      candidates.find((candidate) => candidate.id === selectedRouteId) ??
+      candidates[0];
+    if (selected?.path.length) {
+      map.setFitView(overlaysRef.current, false, [60, 60, 60, 420], 15);
+    } else {
+      map.setCenter(toLngLat(origin));
+    }
+  }, [candidates, currentPosition, focusRequest, origin, selectedRouteId]);
 
   return (
     <section className="map-surface" aria-label="路线地图">

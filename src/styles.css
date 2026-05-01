@@ -175,6 +175,12 @@ button {
   gap: 8px;
 }
 
+.navigation-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .mini-action {
   display: inline-flex;
   align-items: center;
@@ -404,6 +410,11 @@ input[type="range"]:disabled {
   color: #a8dadc;
   font-size: 12px;
   font-weight: 800;
+}
+
+.navigation-card .navigation-state.subtle {
+  color: #d8e3ea;
+  font-weight: 700;
 }
 
 .navigation-card strong {

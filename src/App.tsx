@@ -47,6 +47,21 @@ import "./styles.css";
 
 const DEFAULT_ORIGIN: Coordinate = { lng: 121.4737, lat: 31.2304 };
 
+type WakeLockSentinelLike = {
+  release: () => Promise<void>;
+  addEventListener?: (
+    type: "release",
+    listener: () => void,
+    options?: AddEventListenerOptions
+  ) => void;
+};
+
+type WakeLockNavigator = Navigator & {
+  wakeLock?: {
+    request: (type: "screen") => Promise<WakeLockSentinelLike>;
+  };
+};
+
 function formatDistance(distanceM: number): string {
   return `${(distanceM / 1000).toFixed(2)} km`;
 }
@@ -85,10 +100,14 @@ export default function App() {
   const [currentPosition, setCurrentPosition] = useState<Coordinate | null>(null);
   const [positionAccuracyM, setPositionAccuracyM] = useState<number | null>(null);
   const [navigationStatus, setNavigationStatus] = useState<string | null>(null);
+  const [wakeLockStatus, setWakeLockStatus] = useState<string | null>(null);
+  const [mapFocusRequest, setMapFocusRequest] = useState(0);
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
   const stopLocationWatchRef = useRef<(() => void) | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+  const activeStepButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedRoute = useMemo(
     () =>
@@ -144,8 +163,80 @@ export default function App() {
   useEffect(() => {
     return () => {
       stopLocationWatchRef.current?.();
+      void wakeLockRef.current?.release().catch(() => undefined);
     };
   }, []);
+
+  useEffect(() => {
+    activeStepButtonRef.current?.scrollIntoView({
+      block: "nearest",
+      behavior: isNavigating ? "smooth" : "auto"
+    });
+  }, [activeStepIndex, isNavigating]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function syncWakeLock() {
+      if (!isNavigating) {
+        await wakeLockRef.current?.release().catch(() => undefined);
+        wakeLockRef.current = null;
+        setWakeLockStatus(null);
+        return;
+      }
+
+      const wakeLock = (navigator as WakeLockNavigator).wakeLock;
+      if (!wakeLock) {
+        setWakeLockStatus("当前浏览器不支持屏幕常亮");
+        return;
+      }
+
+      if (wakeLockRef.current) {
+        return;
+      }
+
+      try {
+        const lock = await wakeLock.request("screen");
+        if (disposed || !isNavigating) {
+          await lock.release().catch(() => undefined);
+          return;
+        }
+
+        wakeLockRef.current = lock;
+        setWakeLockStatus("屏幕常亮已开启");
+        lock.addEventListener?.(
+          "release",
+          () => {
+            if (wakeLockRef.current === lock) {
+              wakeLockRef.current = null;
+            }
+            if (!disposed && isNavigating && wakeLockRef.current === null) {
+              setWakeLockStatus("屏幕常亮已被系统暂停");
+            }
+          },
+          { once: true }
+        );
+      } catch {
+        if (!disposed) {
+          setWakeLockStatus("屏幕常亮开启失败");
+        }
+      }
+    }
+
+    void syncWakeLock();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void syncWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isNavigating]);
 
   useEffect(() => {
     Promise.all([getHistory(), getHealth()])
@@ -179,6 +270,10 @@ export default function App() {
     } finally {
       setIsPlanning(false);
     }
+  }
+
+  function handleFocusNavigationMap() {
+    setMapFocusRequest((request) => request + 1);
   }
 
   function handleNavigationLocation(location: LocationFix) {
@@ -255,8 +350,11 @@ export default function App() {
   function handleStopNavigation() {
     stopLocationWatchRef.current?.();
     stopLocationWatchRef.current = null;
+    void wakeLockRef.current?.release().catch(() => undefined);
+    wakeLockRef.current = null;
     setIsNavigating(false);
     setNavigationStatus(null);
+    setWakeLockStatus(null);
     setCurrentPosition(null);
     setPositionAccuracyM(null);
   }
@@ -371,6 +469,7 @@ export default function App() {
         currentPosition={currentPosition}
         activeStepIndex={activeStepIndex}
         isNavigating={isNavigating}
+        focusRequest={mapFocusRequest}
         showHistory={showHistory}
         onOriginChange={setOrigin}
       />
@@ -564,30 +663,45 @@ export default function App() {
           <section className="control-section navigation-section">
             <div className="section-title">
               <h2>跟走导航</h2>
-              {isNavigating ? (
-                <button
-                  className="icon-button danger"
-                  onClick={handleStopNavigation}
-                  aria-label="结束导航"
-                  type="button"
-                >
-                  <Square size={16} />
-                </button>
-              ) : (
-                <button
-                  className="icon-button"
-                  onClick={handleStartNavigation}
-                  aria-label="开始导航"
-                  type="button"
-                >
-                  <Navigation size={17} />
-                </button>
-              )}
+              <div className="navigation-actions">
+                {isNavigating ? (
+                  <>
+                    <button
+                      className="icon-button"
+                      onClick={handleFocusNavigationMap}
+                      aria-label="回到当前位置"
+                      type="button"
+                    >
+                      <LocateFixed size={16} />
+                    </button>
+                    <button
+                      className="icon-button danger"
+                      onClick={handleStopNavigation}
+                      aria-label="结束导航"
+                      type="button"
+                    >
+                      <Square size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="icon-button"
+                    onClick={handleStartNavigation}
+                    aria-label="开始导航"
+                    type="button"
+                  >
+                    <Navigation size={17} />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="navigation-card">
               <span className="navigation-state">
                 {navigationStatus ?? "选择路线后可开始跟走"}
               </span>
+              {wakeLockStatus ? (
+                <span className="navigation-state subtle">{wakeLockStatus}</span>
+              ) : null}
               <strong>{activeStep?.instruction ?? "暂无分步指令"}</strong>
               <small>
                 {activeStep
@@ -647,6 +761,7 @@ export default function App() {
                       index === activeStepIndex ? "active" : ""
                     }`}
                     key={step.id}
+                    ref={index === activeStepIndex ? activeStepButtonRef : null}
                     type="button"
                   >
                     <span>{index + 1}</span>
