@@ -51,6 +51,24 @@ Notes:
 - Add `https://map.rjsyfe324.ccwu.cc` to the AMap JS API allowed referrers if the map does not load.
 - Mobile navigation needs browser location permission and works best on a phone with GPS.
 
+## Local Helpers
+
+Use the helper scripts when you want to bring the whole stack up or verify it:
+
+```powershell
+npm run local:start
+npm run local:check
+npm run local:stop
+```
+
+What they do:
+
+- `local:start`: starts the backend, frontend, and Cloudflare tunnel if they are not already running.
+- `local:check`: checks `.env`, local ports, API health, tunnel status, and public health.
+- `local:stop`: stops the local app processes started by the helper.
+
+The scripts write pid and log files into `.runtime/`.
+
 Useful checks:
 
 ```powershell
