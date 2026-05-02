@@ -5,8 +5,8 @@ $RuntimeDir = Join-Path $RepoRoot ".runtime"
 $EnvPath = Join-Path $RepoRoot ".env"
 $DefaultPublicHost = "map.rjsyfe324.ccwu.cc"
 $TunnelId = "e0816c6e-0b50-4281-81d6-621dce63138a"
-$WebPort = 5173
-$DefaultApiPort = 5174
+$WebPort = 25173
+$DefaultApiPort = 25174
 
 function Ensure-RuntimeDir {
     if (-not (Test-Path -LiteralPath $RuntimeDir)) {
@@ -91,13 +91,22 @@ function Get-ListeningProcessIds {
 }
 
 function Get-CloudflaredProcess {
-    param($Settings)
+    param(
+        $Settings,
+        [switch]$AnyOrigin
+    )
 
     Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.CommandLine -like "*$($Settings.TunnelId)*" -or
-            $_.CommandLine -like "*$($Settings.OriginUrl)*" -or
-            $_.ExecutablePath -eq $Settings.CloudflaredExe
+            $commandLine = [string]$_.CommandLine
+            $matchesRepoBinary = $_.ExecutablePath -eq $Settings.CloudflaredExe
+            $matchesTunnel = $commandLine -like "*$($Settings.TunnelId)*"
+
+            if ($AnyOrigin) {
+                $matchesRepoBinary -or $matchesTunnel
+            } else {
+                $matchesTunnel -and $commandLine -like "*$($Settings.OriginUrl)*"
+            }
         }
 }
 
@@ -133,7 +142,7 @@ function Invoke-CurlText {
         throw "curl.exe was not found"
     }
 
-    $output = & $curl.Source -ksS --max-time $MaxTimeSec $Url 2>&1
+    $output = & $curl.Source -ksS --fail-with-body --max-time $MaxTimeSec $Url 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw ($output -join "`n")
     }

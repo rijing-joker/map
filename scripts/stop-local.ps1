@@ -26,6 +26,12 @@ Stop-PidFile -Name "web"
 Stop-PidFile -Name "server"
 Stop-PidFile -Name "cloudflared"
 
+$cloudflared = Get-CloudflaredProcess -Settings $settings -AnyOrigin
+foreach ($proc in $cloudflared) {
+    Stop-Process -Id $proc.ProcessId -Force
+    Write-Host "cloudflared stopped (pid $($proc.ProcessId))"
+}
+
 $ports = @($settings.WebPort, $settings.ApiPort)
 $ids = Get-ListeningProcessIds -Ports $ports
 foreach ($id in $ids) {

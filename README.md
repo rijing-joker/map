@@ -28,7 +28,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:25173`.
 
 ## Phone Access With Cloudflare Tunnel
 
@@ -36,7 +36,7 @@ For mobile browser navigation, use HTTPS through Cloudflare Tunnel:
 
 ```powershell
 npm run dev
-cloudflared tunnel --url http://127.0.0.1:5173 --hostname map.rjsyfe324.ccwu.cc
+cloudflared tunnel --url http://127.0.0.1:25173 --hostname map.rjsyfe324.ccwu.cc
 ```
 
 Then open:

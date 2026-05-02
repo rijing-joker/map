@@ -58,6 +58,12 @@ if (-not $NoTunnel) {
     if ($tunnelProc) {
         Write-Output "cloudflared tunnel already running (pid $($tunnelProc.ProcessId -join ', '))"
     } else {
+        $staleTunnelProc = Get-CloudflaredProcess -Settings $settings -AnyOrigin
+        foreach ($proc in $staleTunnelProc) {
+            Stop-Process -Id $proc.ProcessId -Force
+            Write-Output "stopped stale cloudflared tunnel (pid $($proc.ProcessId))"
+        }
+
         $stdout = Join-Path $RuntimeDir "cloudflared.out.log"
         $stderr = Join-Path $RuntimeDir "cloudflared.err.log"
         $pidFile = Join-Path $RuntimeDir "cloudflared.pid"

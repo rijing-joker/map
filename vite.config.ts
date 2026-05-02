@@ -4,13 +4,14 @@ import { defineConfig, loadEnv } from "vite";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const publicHost = env.PUBLIC_HOST || "map.rjsyfe324.ccwu.cc";
+  const apiPort = env.PORT || "25174";
 
   return {
     plugins: [react()],
     server: {
       allowedHosts: [publicHost],
       proxy: {
-        "/api": "http://127.0.0.1:5174"
+        "/api": `http://127.0.0.1:${apiPort}`
       },
       hmr: env.PUBLIC_HOST
         ? {
