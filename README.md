@@ -53,7 +53,21 @@ Notes:
 
 ## Local Helpers
 
-Use the helper scripts when you want to bring the whole stack up or verify it:
+Use the root scripts when you want to bring the whole stack up or stop it:
+
+```powershell
+.\start.ps1
+.\stop.ps1
+```
+
+Useful startup variants:
+
+```powershell
+.\start.ps1 -NoTunnel
+.\start.ps1 -Check
+```
+
+The npm helpers are still available:
 
 ```powershell
 npm run local:start
