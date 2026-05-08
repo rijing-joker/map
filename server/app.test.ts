@@ -119,6 +119,8 @@ describe("route API", () => {
 
     expect(saveResponse.status).toBe(201);
     expect(saveBody.route.name).toBe("morning loop");
+    expect(saveBody.route.waypoints).toEqual(planBody.candidates[0].waypoints);
+    expect(saveBody.route.steps).toEqual(planBody.candidates[0].steps);
 
     const renameResponse = await callApi(
       `/api/routes/history/${saveBody.route.id}`,

@@ -39,9 +39,15 @@ export type SavedRoute = {
   id: string;
   name: string;
   distanceM: number;
+  targetDistanceM: number;
+  overlapPct: number;
+  score: number;
   returnToStart: boolean;
   createdAt: string;
   path: Coordinate[];
+  waypoints: Coordinate[];
+  steps: RouteInstructionStep[];
+  warnings: string[];
   segmentKeys: string[];
 };
 

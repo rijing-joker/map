@@ -20,6 +20,31 @@ type MapCanvasProps = {
 type AMapNamespace = Record<string, any>;
 
 const toLngLat = (point: Coordinate) => [point.lng, point.lat];
+const isMobileViewport = () => window.matchMedia("(max-width: 860px)").matches;
+
+function mapPadding(isNavigating: boolean): [number, number, number, number] {
+  if (!isMobileViewport()) {
+    return [60, 60, 60, 60];
+  }
+
+  const panelHeight = Math.min(
+    window.innerHeight * (isNavigating ? 0.66 : 0.58),
+    isNavigating ? 640 : 560
+  );
+  return [56, 24, Math.round(panelHeight + 36), 24];
+}
+
+function fitOverlays(
+  map: any,
+  overlays: any[],
+  isNavigating: boolean,
+  maxZoom: number
+) {
+  if (overlays.length === 0) {
+    return;
+  }
+  map.setFitView(overlays, false, mapPadding(isNavigating), maxZoom);
+}
 
 export function MapCanvas({
   origin,
@@ -38,6 +63,8 @@ export function MapCanvas({
   const mapRef = useRef<any>(null);
   const amapRef = useRef<AMapNamespace | null>(null);
   const overlaysRef = useRef<any[]>([]);
+  const originMarkerRef = useRef<any>(null);
+  const currentMarkerRef = useRef<any>(null);
   const [loadError, setLoadError] = useState<string | null>(
     hasAmapBrowserKey() ? null : "缺少 VITE_AMAP_JS_KEY，地图暂不可用。"
   );
@@ -91,26 +118,33 @@ export function MapCanvas({
 
     overlaysRef.current.forEach((overlay) => map.remove(overlay));
     overlaysRef.current = [];
+    originMarkerRef.current = null;
+    currentMarkerRef.current = null;
 
     const originMarker = new AMap.Marker({
       position: toLngLat(origin),
       anchor: "bottom-center",
       title: "起点",
+      zIndex: 120,
       content: '<div class="map-point map-point-origin">起</div>'
     });
+    originMarkerRef.current = originMarker;
     overlaysRef.current.push(originMarker);
 
     if (showHistory) {
       for (const route of history) {
         const isFocused = route.id === focusedHistoryId;
-        const historyLine = new AMap.Polyline({
-          path: route.path.map(toLngLat),
-          strokeColor: isFocused ? "#b7791f" : "#8d99a6",
-          strokeOpacity: isFocused ? 0.82 : 0.26,
-          strokeWeight: isFocused ? 7 : 5,
-          lineJoin: "round"
-        });
-        overlaysRef.current.push(historyLine);
+        overlaysRef.current.push(
+          new AMap.Polyline({
+            path: route.path.map(toLngLat),
+            strokeColor: isFocused ? "#b7791f" : "#8d99a6",
+            strokeOpacity: isFocused ? 0.82 : 0.24,
+            strokeWeight: isFocused ? 7 : 4,
+            showDir: isFocused,
+            zIndex: isFocused ? 30 : 10,
+            lineJoin: "round"
+          })
+        );
       }
     }
 
@@ -123,25 +157,31 @@ export function MapCanvas({
         continue;
       }
 
-      const candidateLine = new AMap.Polyline({
-        path: candidate.path.map(toLngLat),
-        strokeColor: "#2f9ea3",
-        strokeOpacity: 0.22,
-        strokeWeight: 5,
-        lineJoin: "round"
-      });
-      overlaysRef.current.push(candidateLine);
+      overlaysRef.current.push(
+        new AMap.Polyline({
+          path: candidate.path.map(toLngLat),
+          strokeColor: "#586f7c",
+          strokeOpacity: 0.32,
+          strokeWeight: 4,
+          showDir: true,
+          zIndex: 20,
+          lineJoin: "round"
+        })
+      );
     }
 
     if (selected) {
-      const plannedLine = new AMap.Polyline({
-        path: selected.path.map(toLngLat),
-        strokeColor: "#0f8b8d",
-        strokeOpacity: 0.82,
-        strokeWeight: 7,
-        lineJoin: "round"
-      });
-      overlaysRef.current.push(plannedLine);
+      overlaysRef.current.push(
+        new AMap.Polyline({
+          path: selected.path.map(toLngLat),
+          strokeColor: "#0f8b8d",
+          strokeOpacity: 0.92,
+          strokeWeight: 8,
+          showDir: true,
+          zIndex: 40,
+          lineJoin: "round"
+        })
+      );
 
       const activeStep = selected.steps[activeStepIndex];
       if (activeStep?.path.length) {
@@ -151,6 +191,8 @@ export function MapCanvas({
             strokeColor: "#e25d2a",
             strokeOpacity: 0.96,
             strokeWeight: 9,
+            showDir: true,
+            zIndex: 50,
             lineJoin: "round"
           })
         );
@@ -159,7 +201,13 @@ export function MapCanvas({
       selected.waypoints.forEach((waypoint, index) => {
         const isFirst = index === 0;
         const isLast = index === selected.waypoints.length - 1;
-        const label = isFirst ? "起" : isLast ? (selected.returnToStart ? "回" : "终") : "途";
+        const label = isFirst
+          ? "起"
+          : isLast
+            ? selected.returnToStart
+              ? "回"
+              : "终"
+            : String(index);
         const markerClass = isFirst
           ? "map-point-origin"
           : isLast
@@ -170,6 +218,7 @@ export function MapCanvas({
             position: toLngLat(waypoint),
             anchor: "center",
             title: label,
+            zIndex: isFirst || isLast ? 130 : 125,
             content: `<div class="map-point ${markerClass}">${label}</div>`
           })
         );
@@ -177,30 +226,24 @@ export function MapCanvas({
     }
 
     if (currentPosition) {
-      overlaysRef.current.push(
-        new AMap.Marker({
-          position: toLngLat(currentPosition),
-          anchor: "center",
-          title: "当前位置",
-          content: '<div class="map-point map-point-current">我</div>'
-        })
-      );
+      const currentMarker = new AMap.Marker({
+        position: toLngLat(currentPosition),
+        anchor: "center",
+        title: "我的位置",
+        zIndex: 140,
+        content: '<div class="map-point map-point-current">我</div>'
+      });
+      currentMarkerRef.current = currentMarker;
+      overlaysRef.current.push(currentMarker);
     }
 
     map.add(overlaysRef.current);
-    const visiblePoints = [
-      origin,
-      ...(selected?.path ?? []),
-      ...(currentPosition ? [currentPosition] : []),
-      ...(showHistory ? history.flatMap((route) => route.path) : [])
-    ];
-    if (isNavigating && currentPosition) {
-      map.setCenter(toLngLat(currentPosition));
-      map.setZoom(Math.max(map.getZoom?.() ?? 16, 16));
-    } else if (visiblePoints.length > 1) {
-      map.setFitView(overlaysRef.current, false, [60, 60, 60, 420], 15);
-    } else {
-      map.setCenter(toLngLat(origin));
+    if (isNavigating && currentMarkerRef.current) {
+      fitOverlays(map, [currentMarkerRef.current], true, 17);
+    } else if (overlaysRef.current.length > 1) {
+      fitOverlays(map, overlaysRef.current, isNavigating, 15);
+    } else if (originMarkerRef.current) {
+      fitOverlays(map, [originMarkerRef.current], isNavigating, 16);
     }
   }, [
     origin,
@@ -220,21 +263,17 @@ export function MapCanvas({
       return;
     }
 
-    if (currentPosition) {
-      map.setCenter(toLngLat(currentPosition));
-      map.setZoom(Math.max(map.getZoom?.() ?? 17, 17));
+    if (currentMarkerRef.current) {
+      fitOverlays(map, [currentMarkerRef.current], true, 17);
       return;
     }
 
-    const selected =
-      candidates.find((candidate) => candidate.id === selectedRouteId) ??
-      candidates[0];
-    if (selected?.path.length) {
-      map.setFitView(overlaysRef.current, false, [60, 60, 60, 420], 15);
-    } else {
-      map.setCenter(toLngLat(origin));
+    if (overlaysRef.current.length > 1) {
+      fitOverlays(map, overlaysRef.current, isNavigating, 15);
+    } else if (originMarkerRef.current) {
+      fitOverlays(map, [originMarkerRef.current], isNavigating, 16);
     }
-  }, [candidates, currentPosition, focusRequest, origin, selectedRouteId]);
+  }, [focusRequest, isNavigating]);
 
   return (
     <section className="map-surface" aria-label="路线地图">

@@ -62,9 +62,15 @@ describe("route planner", () => {
           id: "history-1",
           name: "history",
           distanceM: 5000,
+          targetDistanceM: 5000,
+          overlapPct: 0,
+          score: 90,
           returnToStart: true,
           createdAt: new Date().toISOString(),
           path: savedPath,
+          waypoints: savedPath,
+          steps: [],
+          warnings: [],
           segmentKeys: segmentKeysForPath(savedPath)
         }
       ],

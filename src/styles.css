@@ -220,20 +220,15 @@ input[type="number"],
   background: #fbfcfd;
 }
 
+input[type="number"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
 .location-status {
   margin: -2px 0 0;
   color: #4d6170;
   font-size: 13px;
-}
-
-input[type="range"] {
-  width: 100%;
-  accent-color: #0f8b8d;
-}
-
-input[type="range"]:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .switch-row {
@@ -487,6 +482,36 @@ input[type="range"]:disabled {
   color: #d8e3ea;
 }
 
+.step-endpoints {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.step-endpoints span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.09);
+  color: #d8e3ea;
+  font-size: 12px;
+}
+
+.step-endpoints b {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #263747;
+  background: #a8dadc;
+  font-size: 12px;
+}
+
 .navigation-progress {
   height: 6px;
   overflow: hidden;
@@ -585,6 +610,12 @@ input[type="range"]:disabled {
   color: #637383;
 }
 
+.step-item .step-route {
+  color: #3d5668;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .history-stats {
   display: flex;
   align-items: center;
@@ -596,7 +627,7 @@ input[type="range"]:disabled {
 
 .history-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 10px;
   min-height: 46px;
@@ -620,6 +651,21 @@ input[type="range"]:disabled {
   color: inherit;
   text-align: left;
   background: transparent;
+}
+
+.history-main span::after {
+  content: "复用";
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #0f686c;
+  background: #edf8f8;
+  font-size: 11px;
+  font-weight: 800;
+  vertical-align: middle;
 }
 
 .history-item small,
@@ -741,10 +787,6 @@ input[type="range"]:disabled {
     padding: 9px;
   }
 
-  input[type="range"] {
-    min-height: 28px;
-  }
-
   .primary-action {
     min-height: 42px;
   }
@@ -761,6 +803,10 @@ input[type="range"]:disabled {
   .navigation-card {
     gap: 8px;
     padding: 12px;
+  }
+
+  .step-endpoints {
+    grid-template-columns: 1fr;
   }
 
   .navigation-card strong {
@@ -839,6 +885,10 @@ input[type="range"]:disabled {
 
   .history-item {
     gap: 8px;
+  }
+
+  .history-main span::after {
+    display: none;
   }
 
   .origin-chip {

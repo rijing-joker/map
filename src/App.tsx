@@ -48,6 +48,12 @@ import "./styles.css";
 
 const DEFAULT_ORIGIN: Coordinate = { lng: 121.4737, lat: 31.2304 };
 const DISTANCE_PRESETS_KM = [3, 5, 8, 10];
+const MIN_DISTANCE_KM = 1;
+const MAX_DISTANCE_KM = 30;
+const DISTANCE_STEP_KM = 0.5;
+const MIN_OVERLAP_PCT = 0;
+const MAX_OVERLAP_PCT = 80;
+const OVERLAP_STEP_PCT = 5;
 const SIMULATION_TICK_MS = 700;
 const SIMULATION_MIN_STEP_M = 55;
 const SIMULATION_TARGET_TICKS = 30;
@@ -143,6 +149,26 @@ function routeSaveKey(route: RouteCandidate): string {
   ].join("|");
 }
 
+function savedRouteToCandidate(route: SavedRoute): RouteCandidate {
+  return {
+    id: route.id,
+    name: route.name,
+    distanceM: route.distanceM,
+    targetDistanceM: route.targetDistanceM,
+    overlapPct: route.overlapPct,
+    score: route.score,
+    returnToStart: route.returnToStart,
+    path: route.path,
+    waypoints: route.waypoints,
+    steps: route.steps,
+    warnings: route.warnings
+  };
+}
+
+function formatPointLabel(point?: Coordinate): string {
+  return point ? `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}` : "--";
+}
+
 function formatLocationAccuracy(accuracyM: number): string {
   return Number.isFinite(accuracyM) ? formatAccuracy(accuracyM) : "未知";
 }
@@ -155,6 +181,10 @@ function getLocationErrorMessage(error: unknown, fallback: string): string {
     3: "定位超时，请稍后重试。"
   };
   return messages[code] ?? (error instanceof Error ? error.message : fallback);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 export default function App() {
@@ -227,6 +257,8 @@ export default function App() {
   const activeStepIndex = navigationProgress?.activeStepIndex ?? 0;
   const activeStep = selectedRoute?.steps[activeStepIndex] ?? null;
   const nextStep = selectedRoute?.steps[activeStepIndex + 1] ?? null;
+  const activeStepStart = activeStep?.path[0];
+  const activeStepEnd = activeStep?.path[activeStep.path.length - 1];
   const displayedSteps = useMemo(() => {
     if (!selectedRoute) {
       return [];
@@ -603,6 +635,32 @@ export default function App() {
     }
   }
 
+  function handleReuseHistory(route: SavedRoute) {
+    const candidate = savedRouteToCandidate(route);
+    handleStopNavigation();
+    setCandidates([candidate]);
+    setSelectedRouteId(candidate.id);
+    setFocusedHistoryId(route.id);
+    setOrigin(route.waypoints[0] ?? route.path[0] ?? origin);
+    setDistanceKm(
+      clampNumber(route.targetDistanceM / 1000, MIN_DISTANCE_KM, MAX_DISTANCE_KM)
+    );
+    setReturnToStart(route.returnToStart);
+    setSavedRouteKey(routeSaveKey(candidate));
+    setSaveStatus(`已复用历史路线：${route.name}`);
+    setError(null);
+    setWarnings(route.warnings);
+    setMapFocusRequest((request) => request + 1);
+    if (window.matchMedia("(max-width: 860px)").matches) {
+      window.setTimeout(() => {
+        routeResultsRef.current?.scrollIntoView({
+          block: "start",
+          behavior: "smooth"
+        });
+      }, 120);
+    }
+  }
+
   async function handleDeleteHistory(route: SavedRoute) {
     if (!window.confirm(`删除「${route.name}」？`)) {
       return;
@@ -727,13 +785,21 @@ export default function App() {
           </label>
           <input
             id="distance"
-            type="range"
-            min="1"
-            max="30"
-            step="0.5"
+            type="number"
+            inputMode="decimal"
+            min={MIN_DISTANCE_KM}
+            max={MAX_DISTANCE_KM}
+            step={DISTANCE_STEP_KM}
             value={distanceKm}
             disabled={isPlanning}
-            onChange={(event) => setDistanceKm(Number(event.target.value))}
+            onChange={(event) => {
+              const value = event.currentTarget.valueAsNumber;
+              if (Number.isFinite(value)) {
+                setDistanceKm(
+                  clampNumber(value, MIN_DISTANCE_KM, MAX_DISTANCE_KM)
+                );
+              }
+            }}
           />
           <div className="preset-row" aria-label="常用距离">
             {DISTANCE_PRESETS_KM.map((preset) => (
@@ -754,13 +820,21 @@ export default function App() {
           </label>
           <input
             id="overlap"
-            type="range"
-            min="0"
-            max="80"
-            step="5"
+            type="number"
+            inputMode="numeric"
+            min={MIN_OVERLAP_PCT}
+            max={MAX_OVERLAP_PCT}
+            step={OVERLAP_STEP_PCT}
             value={maxOverlapPct}
             disabled={isPlanning}
-            onChange={(event) => setMaxOverlapPct(Number(event.target.value))}
+            onChange={(event) => {
+              const value = event.currentTarget.valueAsNumber;
+              if (Number.isFinite(value)) {
+                setMaxOverlapPct(
+                  clampNumber(value, MIN_OVERLAP_PCT, MAX_OVERLAP_PCT)
+                );
+              }
+            }}
           />
 
           <div className="switch-row">
@@ -953,6 +1027,18 @@ export default function App() {
                 <span className="navigation-state subtle">{wakeLockStatus}</span>
               ) : null}
               <strong>{activeStep?.instruction ?? "暂无分步指令"}</strong>
+              {activeStep ? (
+                <div className="step-endpoints">
+                  <span>
+                    <b>起</b>
+                    {formatPointLabel(activeStepStart)}
+                  </span>
+                  <span>
+                    <b>到</b>
+                    {formatPointLabel(activeStepEnd)}
+                  </span>
+                </div>
+              ) : null}
               <small>
                 {activeStep
                   ? `${Math.round(activeStep.distanceM)} 米${stepDurationLabel(activeStep.durationS)} · 第 ${activeStepIndex + 1}/${selectedRoute.steps.length || 1} 步`
@@ -1016,6 +1102,10 @@ export default function App() {
                   >
                     <span>{index + 1}</span>
                     <strong>{step.instruction}</strong>
+                    <small className="step-route">
+                      {formatPointLabel(step.path[0])} →{" "}
+                      {formatPointLabel(step.path[step.path.length - 1])}
+                    </small>
                     <small>
                       {Math.round(step.distanceM)} 米
                       {stepDurationLabel(step.durationS)}
@@ -1104,11 +1194,7 @@ export default function App() {
                     <>
                       <button
                         className="history-main"
-                        onClick={() =>
-                          setFocusedHistoryId((current) =>
-                            current === route.id ? null : route.id
-                          )
-                        }
+                        onClick={() => handleReuseHistory(route)}
                         type="button"
                       >
                         <span>{route.name}</span>
@@ -1116,6 +1202,19 @@ export default function App() {
                           {formatDistance(route.distanceM)} ·{" "}
                           {route.returnToStart ? "环线" : "路线"}
                         </small>
+                      </button>
+                      <button
+                        className="icon-button subtle"
+                        onClick={() =>
+                          setFocusedHistoryId((current) =>
+                            current === route.id ? null : route.id
+                          )
+                        }
+                        aria-label={`在地图上查看 ${route.name}`}
+                        title="在地图上查看"
+                        type="button"
+                      >
+                        <MapPin size={16} />
                       </button>
                       <button
                         className="icon-button subtle"
