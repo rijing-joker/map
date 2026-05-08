@@ -1,4 +1,5 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { AmapWalkingClient, type WalkingRouteProvider } from "./amapClient";
 import { planRoutes } from "./planner";
@@ -55,23 +56,74 @@ type AppOptions = {
   store?: RouteStore;
   provider?: WalkingRouteProvider;
   amapKey?: string;
+  accessToken?: string;
 };
 
 function errorResponse(code: string, message: string, details?: unknown): ApiError {
   return { code, message, details };
 }
 
+function extractAccessToken(header?: string): string | null {
+  if (!header) {
+    return null;
+  }
+
+  const [scheme, value] = header.split(/\s+/, 2);
+  if (scheme?.toLowerCase() === "bearer" && value) {
+    return value;
+  }
+
+  return header;
+}
+
+function tokensMatch(actual: string | null, expected: string): boolean {
+  if (!actual) {
+    return false;
+  }
+
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
+
 export function createApp(options: AppOptions = {}) {
   const app = express();
   const store = options.store ?? new RouteStore();
+  const accessToken = options.accessToken ?? process.env.API_ACCESS_TOKEN ?? "";
+  const amapKey = options.amapKey ?? process.env.AMAP_WEB_SERVICE_KEY;
+  const provider = options.provider ?? (amapKey ? new AmapWalkingClient(amapKey) : undefined);
 
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/api/health", (_request, response) => {
     response.json({
       ok: true,
-      amapConfigured: Boolean(options.provider || options.amapKey || process.env.AMAP_WEB_SERVICE_KEY)
+      amapConfigured: Boolean(provider),
+      authRequired: Boolean(accessToken)
     });
+  });
+
+  app.use("/api/routes", (request, response, next) => {
+    if (!accessToken) {
+      next();
+      return;
+    }
+
+    const headerToken =
+      extractAccessToken(request.header("authorization")) ??
+      request.header("x-api-access-token") ??
+      null;
+    if (!tokensMatch(headerToken, accessToken)) {
+      response
+        .status(401)
+        .json(errorResponse("auth_required", "需要访问令牌后才能使用路线接口。"));
+      return;
+    }
+
+    next();
   });
 
   app.post("/api/routes/plan", async (request, response) => {
@@ -83,8 +135,6 @@ export function createApp(options: AppOptions = {}) {
       return;
     }
 
-    const amapKey = options.amapKey ?? process.env.AMAP_WEB_SERVICE_KEY;
-    const provider = options.provider ?? (amapKey ? new AmapWalkingClient(amapKey) : undefined);
     if (!provider) {
       response.status(503).json(
         errorResponse(

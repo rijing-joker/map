@@ -29,17 +29,17 @@ foreach ($name in @("VITE_AMAP_JS_KEY", "VITE_AMAP_SECURITY_JS_CODE", "AMAP_WEB_
 
 Write-Check "PUBLIC_HOST" "PASS" $settings.PublicHost
 
-if (Test-PortListening -Port $settings.WebPort) {
-    Write-Check "web port $($settings.WebPort)" "PASS" "listening"
+if (Test-WebHealthy -WebPort $settings.WebPort) {
+    Write-Check "web port $($settings.WebPort)" "PASS" "serving app"
 } else {
-    Write-Check "web port $($settings.WebPort)" "FAIL" "not listening"
+    Write-Check "web port $($settings.WebPort)" "FAIL" "not serving this app"
     $failed = $true
 }
 
-if (Test-PortListening -Port $settings.ApiPort) {
-    Write-Check "api port $($settings.ApiPort)" "PASS" "listening"
+if (Test-ApiHealthy -ApiPort $settings.ApiPort) {
+    Write-Check "api port $($settings.ApiPort)" "PASS" "serving API"
 } else {
-    Write-Check "api port $($settings.ApiPort)" "FAIL" "not listening"
+    Write-Check "api port $($settings.ApiPort)" "FAIL" "not serving this API"
     $failed = $true
 }
 

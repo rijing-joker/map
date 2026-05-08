@@ -39,9 +39,10 @@ afterEach(() => {
 async function callApi(
   path: string,
   init?: RequestInit,
-  store = makeStore()
+  store = makeStore(),
+  appOptions: Parameters<typeof createApp>[0] = {}
 ): Promise<Response> {
-  const { app } = createApp({ provider, store });
+  const { app } = createApp({ provider, store, ...appOptions });
   const server = createServer(app);
 
   await new Promise<void>((resolve) => {
@@ -71,11 +72,40 @@ describe("route API", () => {
     const body = (await response.json()) as {
       ok: boolean;
       amapConfigured: boolean;
+      authRequired: boolean;
     };
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.amapConfigured).toBe(true);
+    expect(body.authRequired).toBe(false);
+  });
+
+  it("requires the access token for route endpoints when configured", async () => {
+    const store = makeStore();
+    const missingTokenResponse = await callApi(
+      "/api/routes/history",
+      undefined,
+      store,
+      { accessToken: "secret-token" }
+    );
+
+    expect(missingTokenResponse.status).toBe(401);
+
+    const authedResponse = await callApi(
+      "/api/routes/history",
+      {
+        headers: {
+          Authorization: "Bearer secret-token"
+        }
+      },
+      store,
+      { accessToken: "secret-token" }
+    );
+    const body = (await authedResponse.json()) as { routes: SavedRoute[] };
+
+    expect(authedResponse.status).toBe(200);
+    expect(body.routes).toEqual([]);
   });
 
   it("plans, saves, renames, lists, and deletes a route", async () => {

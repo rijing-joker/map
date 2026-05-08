@@ -75,6 +75,28 @@ function Test-PortListening {
     }
 }
 
+function Test-ApiHealthy {
+    param([int]$ApiPort)
+
+    try {
+        $response = Invoke-LocalHealth -ApiPort $ApiPort
+        return [bool]($response.StatusCode -eq 200 -and $response.Content -like "*`"ok`":true*")
+    } catch {
+        return $false
+    }
+}
+
+function Test-WebHealthy {
+    param([int]$WebPort)
+
+    try {
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$WebPort/" -UseBasicParsing -TimeoutSec 8
+        return [bool]($response.StatusCode -eq 200 -and $response.Content -like "*<div id=`"root`"></div>*")
+    } catch {
+        return $false
+    }
+}
+
 function Get-ListeningProcessIds {
     param([int[]]$Ports)
 

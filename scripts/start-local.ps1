@@ -37,16 +37,24 @@ function Start-LoggedProcess {
     Write-Output "$Name started (pid $($process.Id))"
 }
 
-if (-not (Test-PortListening -Port $settings.ApiPort)) {
-    Start-LoggedProcess -Name "server" -FilePath "npm.cmd" -Arguments @("run", "dev:server")
+if (Test-PortListening -Port $settings.ApiPort) {
+    if (Test-ApiHealthy -ApiPort $settings.ApiPort) {
+        Write-Output "server already healthy on $($settings.ApiPort)"
+    } else {
+        throw "api port $($settings.ApiPort) is already in use, but /api/health did not return this app. Run 'npm run local:stop' or free the port."
+    }
 } else {
-    Write-Output "server already listening on $($settings.ApiPort)"
+    Start-LoggedProcess -Name "server" -FilePath "npm.cmd" -Arguments @("run", "dev:server")
 }
 
-if (-not (Test-PortListening -Port $settings.WebPort)) {
-    Start-LoggedProcess -Name "web" -FilePath "npm.cmd" -Arguments @("run", "dev:web")
+if (Test-PortListening -Port $settings.WebPort) {
+    if (Test-WebHealthy -WebPort $settings.WebPort) {
+        Write-Output "web already healthy on $($settings.WebPort)"
+    } else {
+        throw "web port $($settings.WebPort) is already in use, but the Vite page did not return this app. Run 'npm run local:stop' or free the port."
+    }
 } else {
-    Write-Output "web already listening on $($settings.WebPort)"
+    Start-LoggedProcess -Name "web" -FilePath "npm.cmd" -Arguments @("run", "dev:web")
 }
 
 if (-not $NoTunnel) {

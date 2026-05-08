@@ -33,7 +33,9 @@ import {
   deleteHistoryRoute,
   getHealth,
   getHistory,
+  hasStoredAccessToken,
   planRoute,
+  promptForAccessToken,
   renameHistoryRoute,
   saveRoute
 } from "./api";
@@ -213,6 +215,7 @@ export default function App() {
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
   const [savedRouteKey, setSavedRouteKey] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const stopLocationWatchRef = useRef<(() => void) | null>(null);
@@ -365,17 +368,42 @@ export default function App() {
   }, [isNavigating, isSimulating]);
 
   useEffect(() => {
-    Promise.all([getHistory(), getHealth()])
-      .then(([routes, health]) => {
-        setHistory(routes);
+    getHealth()
+      .then(async (health) => {
         setAmapConfigured(health.amapConfigured);
+        setAuthRequired(health.authRequired);
+        if (health.authRequired && !hasStoredAccessToken()) {
+          setError("需要访问令牌后才能读取历史路线和生成路线。");
+          return;
+        }
+
+        const routes = await getHistory();
+        setHistory(routes);
       })
       .catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "初始化失败。");
       });
   }, []);
 
+  function ensureAccessToken(): boolean {
+    if (!authRequired || hasStoredAccessToken()) {
+      return true;
+    }
+
+    const accepted = promptForAccessToken();
+    if (!accepted) {
+      setError("需要访问令牌后才能继续。");
+    } else {
+      setError(null);
+    }
+    return accepted;
+  }
+
   async function handlePlan() {
+    if (!ensureAccessToken()) {
+      return;
+    }
+
     setIsPlanning(true);
     setError(null);
     setWarnings([]);
@@ -615,6 +643,9 @@ export default function App() {
     if (!selectedRoute) {
       return;
     }
+    if (!ensureAccessToken()) {
+      return;
+    }
 
     setIsSaving(true);
     setError(null);
@@ -662,6 +693,9 @@ export default function App() {
   }
 
   async function handleDeleteHistory(route: SavedRoute) {
+    if (!ensureAccessToken()) {
+      return;
+    }
     if (!window.confirm(`删除「${route.name}」？`)) {
       return;
     }
@@ -678,6 +712,10 @@ export default function App() {
   }
 
   async function handleRenameHistory(id: string) {
+    if (!ensureAccessToken()) {
+      return;
+    }
+
     const name = editingHistoryName.trim();
     if (!name) {
       setError("路线名称不能为空。");
@@ -697,6 +735,10 @@ export default function App() {
   }
 
   async function handleClearHistory() {
+    if (!ensureAccessToken()) {
+      return;
+    }
+
     if (history.length === 0 || !window.confirm("清空全部历史路线？")) {
       return;
     }

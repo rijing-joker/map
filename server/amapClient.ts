@@ -53,6 +53,7 @@ const textValue = (value: unknown): string | undefined => {
 
 export class AmapWalkingClient implements WalkingRouteProvider {
   private lastRequestAt = 0;
+  private requestQueue: Promise<void> = Promise.resolve();
   private readonly minRequestIntervalMs = Number(
     process.env.AMAP_REQUEST_INTERVAL_MS ?? 450
   );
@@ -82,65 +83,80 @@ export class AmapWalkingClient implements WalkingRouteProvider {
     origin: Coordinate,
     destination: Coordinate
   ): Promise<WalkingRoute> {
-    await this.waitForRateLimit();
+    return this.runRateLimited(async () => {
+      const url = new URL("https://restapi.amap.com/v3/direction/walking");
+      url.searchParams.set("key", this.apiKey);
+      url.searchParams.set("origin", formatPoint(origin));
+      url.searchParams.set("destination", formatPoint(destination));
+      url.searchParams.set("output", "json");
 
-    const url = new URL("https://restapi.amap.com/v3/direction/walking");
-    url.searchParams.set("key", this.apiKey);
-    url.searchParams.set("origin", formatPoint(origin));
-    url.searchParams.set("destination", formatPoint(destination));
-    url.searchParams.set("output", "json");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`AMap returned HTTP ${response.status}.`);
+        }
 
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`AMap returned HTTP ${response.status}.`);
+        const data = (await response.json()) as AmapWalkingResponse;
+        if (data.status !== "1") {
+          throw new Error(
+            `AMap walking route failed: ${data.info ?? "unknown"} (${data.infocode ?? "no code"}).`
+          );
+        }
+
+        const bestPath = data.route?.paths?.[0];
+        if (!bestPath) {
+          throw new Error("AMap did not return a walking path.");
+        }
+
+        const steps = (bestPath.steps ?? []).map((step, index) => {
+          const stepPath = parseAmapPolyline(step.polyline ?? "");
+          const distanceM = Number(step.distance) || pathDistanceM(stepPath);
+          const instruction = textValue(step.instruction);
+          const action = textValue(step.action);
+          return {
+            id: crypto.randomUUID(),
+            instruction:
+              instruction ||
+              action ||
+              `继续前行 ${Math.round(distanceM)} 米`,
+            road: textValue(step.road),
+            action,
+            assistantAction: textValue(step.assistant_action),
+            distanceM: Math.round(distanceM),
+            durationS: Number(step.duration) || undefined,
+            path: stepPath,
+            index
+          };
+        });
+
+        const points = steps.flatMap((step) => step.path);
+        const path = points.length >= 2 ? points : [origin, destination];
+        const distanceM = Number(bestPath.distance) || pathDistanceM(path);
+
+        return { path, distanceM, steps };
+      } finally {
+        clearTimeout(timeout);
       }
+    });
+  }
 
-      const data = (await response.json()) as AmapWalkingResponse;
-      if (data.status !== "1") {
-        throw new Error(
-          `AMap walking route failed: ${data.info ?? "unknown"} (${data.infocode ?? "no code"}).`
-        );
+  private async runRateLimited<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.requestQueue.then(async () => {
+      await this.waitForRateLimit();
+      try {
+        return await operation();
+      } finally {
+        this.lastRequestAt = Date.now();
       }
-
-      const bestPath = data.route?.paths?.[0];
-      if (!bestPath) {
-        throw new Error("AMap did not return a walking path.");
-      }
-
-      const steps = (bestPath.steps ?? []).map((step, index) => {
-        const stepPath = parseAmapPolyline(step.polyline ?? "");
-        const distanceM = Number(step.distance) || pathDistanceM(stepPath);
-        const instruction = textValue(step.instruction);
-        const action = textValue(step.action);
-        return {
-          id: crypto.randomUUID(),
-          instruction:
-            instruction ||
-            action ||
-            `继续前行 ${Math.round(distanceM)} 米`,
-          road: textValue(step.road),
-          action,
-          assistantAction: textValue(step.assistant_action),
-          distanceM: Math.round(distanceM),
-          durationS: Number(step.duration) || undefined,
-          path: stepPath,
-          index
-        };
-      });
-
-      const points = steps.flatMap((step) => step.path);
-      const path = points.length >= 2 ? points : [origin, destination];
-      const distanceM = Number(bestPath.distance) || pathDistanceM(path);
-
-      return { path, distanceM, steps };
-    } finally {
-      this.lastRequestAt = Date.now();
-      clearTimeout(timeout);
-    }
+    });
+    this.requestQueue = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 
   private async waitForRateLimit(): Promise<void> {

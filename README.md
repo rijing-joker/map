@@ -20,6 +20,10 @@ Required keys:
 - `VITE_AMAP_JS_KEY`: AMap JavaScript API key for browser map rendering.
 - `VITE_AMAP_SECURITY_JS_CODE`: AMap JavaScript security code for local development.
 - `AMAP_WEB_SERVICE_KEY`: AMap Web Service key for walking route planning.
+- `API_ACCESS_TOKEN`: optional shared access token for route planning and history APIs. Set this before exposing the app publicly.
+
+When `API_ACCESS_TOKEN` is set, the browser will ask for it before it can generate,
+save, rename, delete, or read history routes. The app sends it as a Bearer token.
 
 Run the app:
 
@@ -39,7 +43,7 @@ npm run dev
 cloudflared tunnel --url http://127.0.0.1:25173 --hostname map.rjsyfe324.ccwu.cc
 ```
 
-Then open:
+Set `API_ACCESS_TOKEN` in `.env` before using the public URL, then open:
 
 ```text
 https://map.rjsyfe324.ccwu.cc
@@ -48,6 +52,7 @@ https://map.rjsyfe324.ccwu.cc
 Notes:
 
 - Keep `PUBLIC_HOST=map.rjsyfe324.ccwu.cc` in `.env`.
+- Keep `API_ACCESS_TOKEN` set when the tunnel is reachable from the internet.
 - Add `https://map.rjsyfe324.ccwu.cc` to the AMap JS API allowed referrers if the map does not load.
 - Mobile navigation needs browser location permission and works best on a phone with GPS.
 
@@ -77,8 +82,8 @@ npm run local:stop
 
 What they do:
 
-- `local:start`: starts the backend, frontend, and Cloudflare tunnel if they are not already running.
-- `local:check`: checks `.env`, local ports, API health, tunnel status, and public health.
+- `local:start`: starts the backend, frontend, and Cloudflare tunnel if they are not already running and refuses ports that are occupied by the wrong service.
+- `local:check`: checks `.env`, app health on local ports, API health, tunnel status, and public health.
 - `local:stop`: stops the local app processes started by the helper.
 
 The scripts write pid and log files into `.runtime/`.
