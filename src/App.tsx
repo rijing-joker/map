@@ -189,11 +189,21 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function formatInputNumber(value: number, fractionDigits?: number): string {
+  return fractionDigits === undefined ? String(value) : value.toFixed(fractionDigits);
+}
+
 export default function App() {
   const [origin, setOrigin] = useState<Coordinate>(DEFAULT_ORIGIN);
+  const [originInput, setOriginInput] = useState({
+    lng: formatInputNumber(DEFAULT_ORIGIN.lng, 6),
+    lat: formatInputNumber(DEFAULT_ORIGIN.lat, 6)
+  });
   const [distanceKm, setDistanceKm] = useState(5);
+  const [distanceInput, setDistanceInput] = useState(formatInputNumber(5));
   const [returnToStart, setReturnToStart] = useState(true);
   const [maxOverlapPct, setMaxOverlapPct] = useState(25);
+  const [maxOverlapInput, setMaxOverlapInput] = useState(formatInputNumber(25));
   const [showHistory, setShowHistory] = useState(true);
   const [history, setHistory] = useState<SavedRoute[]>([]);
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
@@ -224,6 +234,74 @@ export default function App() {
   const activeStepButtonRef = useRef<HTMLButtonElement | null>(null);
   const routeResultsRef = useRef<HTMLElement | null>(null);
   const navigationSectionRef = useRef<HTMLElement | null>(null);
+
+  function applyOrigin(nextOrigin: Coordinate) {
+    setOrigin(nextOrigin);
+    setOriginInput({
+      lng: formatInputNumber(nextOrigin.lng, 6),
+      lat: formatInputNumber(nextOrigin.lat, 6)
+    });
+  }
+
+  function handleOriginInputChange(axis: keyof Coordinate, rawValue: string) {
+    setOriginInput((current) => ({ ...current, [axis]: rawValue }));
+
+    if (rawValue.trim() === "") {
+      return;
+    }
+
+    const value = Number(rawValue);
+    if (Number.isFinite(value)) {
+      setOrigin((current) => ({ ...current, [axis]: value }));
+    }
+  }
+
+  function normalizeOriginInput(axis: keyof Coordinate) {
+    setOriginInput((current) => ({
+      ...current,
+      [axis]: formatInputNumber(origin[axis], 6)
+    }));
+  }
+
+  function applyDistanceKm(nextDistanceKm: number) {
+    const clamped = clampNumber(nextDistanceKm, MIN_DISTANCE_KM, MAX_DISTANCE_KM);
+    setDistanceKm(clamped);
+    setDistanceInput(formatInputNumber(clamped));
+  }
+
+  function handleDistanceInputChange(rawValue: string) {
+    setDistanceInput(rawValue);
+
+    if (rawValue.trim() === "") {
+      return;
+    }
+
+    const value = Number(rawValue);
+    if (Number.isFinite(value)) {
+      setDistanceKm(clampNumber(value, MIN_DISTANCE_KM, MAX_DISTANCE_KM));
+    }
+  }
+
+  function normalizeDistanceInput() {
+    setDistanceInput(formatInputNumber(distanceKm));
+  }
+
+  function handleOverlapInputChange(rawValue: string) {
+    setMaxOverlapInput(rawValue);
+
+    if (rawValue.trim() === "") {
+      return;
+    }
+
+    const value = Number(rawValue);
+    if (Number.isFinite(value)) {
+      setMaxOverlapPct(clampNumber(value, MIN_OVERLAP_PCT, MAX_OVERLAP_PCT));
+    }
+  }
+
+  function normalizeOverlapInput() {
+    setMaxOverlapInput(formatInputNumber(maxOverlapPct));
+  }
 
   const selectedRoute = useMemo(
     () =>
@@ -627,7 +705,7 @@ export default function App() {
         return;
       }
 
-      setOrigin(location.coordinate);
+      applyOrigin(location.coordinate);
       setLocationStatus(
         `已使用${location.sourceLabel}，精度约 ${formatLocationAccuracy(location.accuracyM)}`
       );
@@ -672,10 +750,8 @@ export default function App() {
     setCandidates([candidate]);
     setSelectedRouteId(candidate.id);
     setFocusedHistoryId(route.id);
-    setOrigin(route.waypoints[0] ?? route.path[0] ?? origin);
-    setDistanceKm(
-      clampNumber(route.targetDistanceM / 1000, MIN_DISTANCE_KM, MAX_DISTANCE_KM)
-    );
+    applyOrigin(route.waypoints[0] ?? route.path[0] ?? origin);
+    applyDistanceKm(route.targetDistanceM / 1000);
     setReturnToStart(route.returnToStart);
     setSavedRouteKey(routeSaveKey(candidate));
     setSaveStatus(`已复用历史路线：${route.name}`);
@@ -765,7 +841,7 @@ export default function App() {
         isNavigating={isNavigating}
         focusRequest={mapFocusRequest}
         showHistory={showHistory}
-        onOriginChange={setOrigin}
+        onOriginChange={applyOrigin}
       />
 
       <aside className={`control-panel ${isNavigating ? "navigation-active" : ""}`}>
@@ -798,25 +874,21 @@ export default function App() {
               id="lng"
               type="number"
               step="0.000001"
-              value={origin.lng}
+              value={originInput.lng}
               onChange={(event) =>
-                setOrigin((current) => ({
-                  ...current,
-                  lng: Number(event.target.value)
-                }))
+                handleOriginInputChange("lng", event.target.value)
               }
+              onBlur={() => normalizeOriginInput("lng")}
             />
             <input
               aria-label="纬度"
               type="number"
               step="0.000001"
-              value={origin.lat}
+              value={originInput.lat}
               onChange={(event) =>
-                setOrigin((current) => ({
-                  ...current,
-                  lat: Number(event.target.value)
-                }))
+                handleOriginInputChange("lat", event.target.value)
               }
+              onBlur={() => normalizeOriginInput("lat")}
             />
           </div>
           {locationStatus ? <p className="location-status">{locationStatus}</p> : null}
@@ -832,23 +904,17 @@ export default function App() {
             min={MIN_DISTANCE_KM}
             max={MAX_DISTANCE_KM}
             step={DISTANCE_STEP_KM}
-            value={distanceKm}
+            value={distanceInput}
             disabled={isPlanning}
-            onChange={(event) => {
-              const value = event.currentTarget.valueAsNumber;
-              if (Number.isFinite(value)) {
-                setDistanceKm(
-                  clampNumber(value, MIN_DISTANCE_KM, MAX_DISTANCE_KM)
-                );
-              }
-            }}
+            onChange={(event) => handleDistanceInputChange(event.target.value)}
+            onBlur={normalizeDistanceInput}
           />
           <div className="preset-row" aria-label="常用距离">
             {DISTANCE_PRESETS_KM.map((preset) => (
               <button
                 className={`preset-chip ${distanceKm === preset ? "selected" : ""}`}
                 key={preset}
-                onClick={() => setDistanceKm(preset)}
+                onClick={() => applyDistanceKm(preset)}
                 type="button"
               >
                 {preset} km
@@ -867,16 +933,10 @@ export default function App() {
             min={MIN_OVERLAP_PCT}
             max={MAX_OVERLAP_PCT}
             step={OVERLAP_STEP_PCT}
-            value={maxOverlapPct}
+            value={maxOverlapInput}
             disabled={isPlanning}
-            onChange={(event) => {
-              const value = event.currentTarget.valueAsNumber;
-              if (Number.isFinite(value)) {
-                setMaxOverlapPct(
-                  clampNumber(value, MIN_OVERLAP_PCT, MAX_OVERLAP_PCT)
-                );
-              }
-            }}
+            onChange={(event) => handleOverlapInputChange(event.target.value)}
+            onBlur={normalizeOverlapInput}
           />
 
           <div className="switch-row">
