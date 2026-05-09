@@ -58,6 +58,14 @@ if (Test-PortListening -Port $settings.WebPort) {
 }
 
 if (-not $NoTunnel) {
+    if (-not $settings.TunnelId) {
+        throw "CLOUDFLARE_TUNNEL_ID is not set. Add it to .env or run with -NoTunnel."
+    }
+
+    if (-not $settings.CloudflaredCredential) {
+        throw "CLOUDFLARE_CREDENTIAL_FILE is not set and no default credential path could be inferred."
+    }
+
     if (-not (Test-Path -LiteralPath $settings.CloudflaredExe)) {
         throw "cloudflared.exe not found at $($settings.CloudflaredExe)"
     }
@@ -95,7 +103,9 @@ if (-not $NoTunnel) {
 Write-Output ""
 Write-Output "Local app:"
 Write-Output "  http://127.0.0.1:$($settings.WebPort)"
-Write-Output "Public app:"
-Write-Output "  https://$($settings.PublicHost)"
+if ($settings.PublicHost) {
+    Write-Output "Public app:"
+    Write-Output "  https://$($settings.PublicHost)"
+}
 Write-Output ""
 Write-Output "Run 'npm run local:check' to verify the stack."

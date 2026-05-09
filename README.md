@@ -3,9 +3,9 @@
 Local web project for planning walking or running routes by target distance,
 return-to-start preference, and overlap with previously saved routes.
 
-The remote repository for this project is hosted on the local Gitea instance:
+The remote repository for this project is public on GitHub:
 
-http://localhost:3000/admin/map
+https://github.com/rijing-joker/map
 
 ## Development
 
@@ -39,21 +39,23 @@ Open `http://127.0.0.1:25173`.
 For mobile browser navigation, use HTTPS through Cloudflare Tunnel:
 
 ```powershell
-npm run dev
-cloudflared tunnel --url http://127.0.0.1:25173 --hostname map.rjsyfe324.ccwu.cc
+.\start.ps1
 ```
 
 Set `API_ACCESS_TOKEN` in `.env` before using the public URL, then open:
 
 ```text
-https://map.rjsyfe324.ccwu.cc
+https://<your-public-host>
 ```
 
 Notes:
 
-- Keep `PUBLIC_HOST=map.rjsyfe324.ccwu.cc` in `.env`.
+- Keep `PUBLIC_HOST=<your-public-host>` in `.env`.
+- Keep `CLOUDFLARE_TUNNEL_ID=<your-tunnel-id>` in `.env`.
+- If the credential file is not in Cloudflare's default user profile location,
+  set `CLOUDFLARE_CREDENTIAL_FILE=<absolute-path-to-credential-json>`.
 - Keep `API_ACCESS_TOKEN` set when the tunnel is reachable from the internet.
-- Add `https://map.rjsyfe324.ccwu.cc` to the AMap JS API allowed referrers if the map does not load.
+- Add `https://<your-public-host>` to the AMap JS API allowed referrers if the map does not load.
 - Mobile navigation needs browser location permission and works best on a phone with GPS.
 
 ## Local Helpers

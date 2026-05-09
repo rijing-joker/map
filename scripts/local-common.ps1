@@ -3,8 +3,6 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $RuntimeDir = Join-Path $RepoRoot ".runtime"
 $EnvPath = Join-Path $RepoRoot ".env"
-$DefaultPublicHost = "map.rjsyfe324.ccwu.cc"
-$TunnelId = "e0816c6e-0b50-4281-81d6-621dce63138a"
 $WebPort = 25173
 $DefaultApiPort = 25174
 
@@ -46,9 +44,21 @@ function Get-LocalSettings {
         $apiPort = [int]$envValues["PORT"]
     }
 
-    $publicHost = $DefaultPublicHost
+    $publicHost = ""
     if ($envValues.ContainsKey("PUBLIC_HOST") -and $envValues["PUBLIC_HOST"]) {
         $publicHost = $envValues["PUBLIC_HOST"]
+    }
+
+    $tunnelId = ""
+    if ($envValues.ContainsKey("CLOUDFLARE_TUNNEL_ID") -and $envValues["CLOUDFLARE_TUNNEL_ID"]) {
+        $tunnelId = $envValues["CLOUDFLARE_TUNNEL_ID"]
+    }
+
+    $cloudflaredCredential = ""
+    if ($envValues.ContainsKey("CLOUDFLARE_CREDENTIAL_FILE") -and $envValues["CLOUDFLARE_CREDENTIAL_FILE"]) {
+        $cloudflaredCredential = $envValues["CLOUDFLARE_CREDENTIAL_FILE"]
+    } elseif ($tunnelId) {
+        $cloudflaredCredential = Join-Path $env:USERPROFILE ".cloudflared\$tunnelId.json"
     }
 
     [pscustomobject]@{
@@ -59,8 +69,8 @@ function Get-LocalSettings {
         ApiPort = $apiPort
         PublicHost = $publicHost
         OriginUrl = "http://127.0.0.1:$WebPort"
-        TunnelId = $TunnelId
-        CloudflaredCredential = Join-Path $env:USERPROFILE ".cloudflared\$TunnelId.json"
+        TunnelId = $tunnelId
+        CloudflaredCredential = $cloudflaredCredential
         CloudflaredExe = Join-Path $RepoRoot ".tools\cloudflared.exe"
     }
 }
@@ -122,7 +132,7 @@ function Get-CloudflaredProcess {
         Where-Object {
             $commandLine = [string]$_.CommandLine
             $matchesRepoBinary = $_.ExecutablePath -eq $Settings.CloudflaredExe
-            $matchesTunnel = $commandLine -like "*$($Settings.TunnelId)*"
+            $matchesTunnel = $Settings.TunnelId -and $commandLine -like "*$($Settings.TunnelId)*"
 
             if ($AnyOrigin) {
                 $matchesRepoBinary -or $matchesTunnel
