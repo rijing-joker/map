@@ -222,6 +222,7 @@ export default function App() {
   const [navigationStatus, setNavigationStatus] = useState<string | null>(null);
   const [wakeLockStatus, setWakeLockStatus] = useState<string | null>(null);
   const [mapFocusRequest, setMapFocusRequest] = useState(0);
+  const [originFocusRequest, setOriginFocusRequest] = useState(0);
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [editingHistoryName, setEditingHistoryName] = useState("");
   const [amapConfigured, setAmapConfigured] = useState<boolean | null>(null);
@@ -706,6 +707,7 @@ export default function App() {
       }
 
       applyOrigin(location.coordinate);
+      setOriginFocusRequest((request) => request + 1);
       setLocationStatus(
         `已使用${location.sourceLabel}，精度约 ${formatLocationAccuracy(location.accuracyM)}`
       );
@@ -840,6 +842,7 @@ export default function App() {
         activeStepIndex={activeStepIndex}
         isNavigating={isNavigating}
         focusRequest={mapFocusRequest}
+        originFocusRequest={originFocusRequest}
         showHistory={showHistory}
         onOriginChange={applyOrigin}
       />

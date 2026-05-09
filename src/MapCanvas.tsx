@@ -13,6 +13,7 @@ type MapCanvasProps = {
   activeStepIndex: number;
   isNavigating: boolean;
   focusRequest: number;
+  originFocusRequest: number;
   showHistory: boolean;
   onOriginChange: (origin: Coordinate) => void;
 };
@@ -46,6 +47,19 @@ function fitOverlays(
   map.setFitView(overlays, false, mapPadding(isNavigating), maxZoom);
 }
 
+function focusOriginInVisibleMap(
+  map: any,
+  origin: Coordinate,
+  zoom: number
+) {
+  if (map.setZoomAndCenter) {
+    map.setZoomAndCenter(zoom, toLngLat(origin));
+  } else {
+    map.setZoom?.(zoom);
+    map.setCenter?.(toLngLat(origin));
+  }
+}
+
 export function MapCanvas({
   origin,
   candidates,
@@ -56,6 +70,7 @@ export function MapCanvas({
   activeStepIndex,
   isNavigating,
   focusRequest,
+  originFocusRequest,
   showHistory,
   onOriginChange
 }: MapCanvasProps) {
@@ -274,6 +289,23 @@ export function MapCanvas({
       fitOverlays(map, [originMarkerRef.current], isNavigating, 16);
     }
   }, [focusRequest, isNavigating]);
+
+  useEffect(() => {
+    mapRef.current?.resize?.();
+  }, [isNavigating]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (
+      !map ||
+      originFocusRequest === 0 ||
+      !originMarkerRef.current
+    ) {
+      return;
+    }
+
+    focusOriginInVisibleMap(map, origin, 16);
+  }, [originFocusRequest, origin]);
 
   return (
     <section className="map-surface" aria-label="路线地图">

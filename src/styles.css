@@ -707,6 +707,14 @@ input[type="number"]:disabled {
     min-height: 100dvh;
   }
 
+  .map-root {
+    bottom: min(58dvh, 560px);
+  }
+
+  .app-shell.is-navigating .map-root {
+    bottom: min(66dvh, 640px);
+  }
+
   .control-panel {
     position: fixed;
     inset: auto 0 0;
@@ -844,9 +852,17 @@ input[type="number"]:disabled {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   }
 
+  .map-root {
+    bottom: 60dvh;
+  }
+
   .control-panel.navigation-active {
     max-height: 68vh;
     max-height: 68dvh;
+  }
+
+  .app-shell.is-navigating .map-root {
+    bottom: 68dvh;
   }
 
   .control-section {
