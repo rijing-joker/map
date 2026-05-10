@@ -49,7 +49,7 @@ import type {
 import "./styles.css";
 
 const DEFAULT_ORIGIN: Coordinate = { lng: 121.4737, lat: 31.2304 };
-const DISTANCE_PRESETS_KM = [3, 5, 8, 10];
+const DISTANCE_PRESETS_KM = [4, 8, 12, 16];
 const MIN_DISTANCE_KM = 1;
 const MAX_DISTANCE_KM = 30;
 const DISTANCE_STEP_KM = 0.5;
@@ -74,6 +74,8 @@ type WakeLockNavigator = Navigator & {
     request: (type: "screen") => Promise<WakeLockSentinelLike>;
   };
 };
+
+type WorkspaceTab = "plan" | "routes" | "navigation" | "history";
 
 function formatDistance(distanceM: number): string {
   return `${(distanceM / 1000).toFixed(2)} km`;
@@ -201,10 +203,12 @@ export default function App() {
   });
   const [distanceKm, setDistanceKm] = useState(5);
   const [distanceInput, setDistanceInput] = useState(formatInputNumber(5));
+  const [distanceLimitStatus, setDistanceLimitStatus] = useState<string | null>(null);
   const [returnToStart, setReturnToStart] = useState(true);
   const [maxOverlapPct, setMaxOverlapPct] = useState(25);
   const [maxOverlapInput, setMaxOverlapInput] = useState(formatInputNumber(25));
   const [showHistory, setShowHistory] = useState(true);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("plan");
   const [history, setHistory] = useState<SavedRoute[]>([]);
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -268,18 +272,30 @@ export default function App() {
     const clamped = clampNumber(nextDistanceKm, MIN_DISTANCE_KM, MAX_DISTANCE_KM);
     setDistanceKm(clamped);
     setDistanceInput(formatInputNumber(clamped));
+    setDistanceLimitStatus(
+      nextDistanceKm > MAX_DISTANCE_KM
+        ? `最大支持 ${MAX_DISTANCE_KM} km，已按 ${MAX_DISTANCE_KM} km 计算。`
+        : null
+    );
   }
 
   function handleDistanceInputChange(rawValue: string) {
     setDistanceInput(rawValue);
 
     if (rawValue.trim() === "") {
+      setDistanceLimitStatus(null);
       return;
     }
 
     const value = Number(rawValue);
     if (Number.isFinite(value)) {
-      setDistanceKm(clampNumber(value, MIN_DISTANCE_KM, MAX_DISTANCE_KM));
+      const clamped = clampNumber(value, MIN_DISTANCE_KM, MAX_DISTANCE_KM);
+      setDistanceKm(clamped);
+      setDistanceLimitStatus(
+        value > MAX_DISTANCE_KM
+          ? `最大支持 ${MAX_DISTANCE_KM} km，已按 ${MAX_DISTANCE_KM} km 计算。`
+          : null
+      );
     }
   }
 
@@ -500,6 +516,7 @@ export default function App() {
       setSelectedRouteId(result.candidates[0]?.id ?? null);
       setWarnings(result.warnings);
       setSavedRouteKey(null);
+      setActiveTab("routes");
       if (window.matchMedia("(max-width: 860px)").matches) {
         window.setTimeout(() => {
           routeResultsRef.current?.scrollIntoView({
@@ -599,6 +616,7 @@ export default function App() {
     setCurrentPosition(null);
     setPositionAccuracyM(null);
     setNavigationStatus("正在通过高德在线定位获取当前位置...");
+    setActiveTab("navigation");
     scrollNavigationSectionIntoView();
     stopLocationWatchRef.current = startLocationTracking({
       onLocation: handleNavigationLocation,
@@ -640,6 +658,7 @@ export default function App() {
     setPositionAccuracyM(8);
     setNavigationStatus("模拟跟走中，正在沿当前路线预演...");
     setMapFocusRequest((request) => request + 1);
+    setActiveTab("navigation");
     scrollNavigationSectionIntoView();
 
     simulationTimerRef.current = window.setInterval(() => {
@@ -760,6 +779,7 @@ export default function App() {
     setError(null);
     setWarnings(route.warnings);
     setMapFocusRequest((request) => request + 1);
+    setActiveTab("routes");
     if (window.matchMedia("(max-width: 860px)").matches) {
       window.setTimeout(() => {
         routeResultsRef.current?.scrollIntoView({
@@ -856,8 +876,79 @@ export default function App() {
           <Route size={28} aria-hidden="true" />
         </header>
 
+        <nav className="workspace-tabs" aria-label="路线规划工作区">
+          <button
+            className={`workspace-tab ${activeTab === "plan" ? "active" : ""}`}
+            onClick={() => setActiveTab("plan")}
+            type="button"
+          >
+            <MapPin size={16} />
+            <span className="workspace-tab-label">规划</span>
+          </button>
+          <button
+            className={`workspace-tab ${activeTab === "routes" ? "active" : ""}`}
+            onClick={() => setActiveTab("routes")}
+            type="button"
+          >
+            <Route size={16} />
+            <span className="workspace-tab-label">路线</span>
+            <span className="workspace-tab-count">{candidates.length}</span>
+          </button>
+          <button
+            className={`workspace-tab ${
+              activeTab === "navigation" ? "active" : ""
+            }`}
+            onClick={() => setActiveTab("navigation")}
+            disabled={!selectedRoute}
+            type="button"
+          >
+            <Navigation size={16} />
+            <span className="workspace-tab-label">导航</span>
+          </button>
+          <button
+            className={`workspace-tab ${activeTab === "history" ? "active" : ""}`}
+            onClick={() => setActiveTab("history")}
+            type="button"
+          >
+            <History size={16} />
+            <span className="workspace-tab-label">历史</span>
+            <span className="workspace-tab-count">{history.length}</span>
+          </button>
+        </nav>
+
+        {amapConfigured === false || error || warnings.length > 0 || saveStatus ? (
+          <div className="panel-feedback">
+            {amapConfigured === false ? (
+              <p className="notice warning">
+                <AlertCircle size={16} />
+                后端缺少 AMAP_WEB_SERVICE_KEY
+              </p>
+            ) : null}
+            {error ? (
+              <p className="notice error">
+                <AlertCircle size={16} />
+                {error}
+              </p>
+            ) : null}
+            {warnings.map((warning) => (
+              <p className="notice" key={warning}>
+                <AlertCircle size={16} />
+                {warning}
+              </p>
+            ))}
+            {saveStatus ? (
+              <p className="notice success">
+                <Check size={16} />
+                {saveStatus}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="panel-workspace">
+        {activeTab === "plan" ? (
         <section className="control-section">
-          <div className="field-label">
+          <div className="field-label origin-field-label">
             <span className="label-title">
               <MapPin size={16} />
               起点坐标
@@ -912,6 +1003,7 @@ export default function App() {
             onChange={(event) => handleDistanceInputChange(event.target.value)}
             onBlur={normalizeDistanceInput}
           />
+          {distanceLimitStatus ? <p className="location-status">{distanceLimitStatus}</p> : null}
           <div className="preset-row" aria-label="常用距离">
             {DISTANCE_PRESETS_KM.map((preset) => (
               <button
@@ -965,33 +1057,10 @@ export default function App() {
             {isPlanning ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
             生成路线
           </button>
-
-          {amapConfigured === false ? (
-            <p className="notice warning">
-              <AlertCircle size={16} />
-              后端缺少 AMAP_WEB_SERVICE_KEY
-            </p>
-          ) : null}
-          {error ? (
-            <p className="notice error">
-              <AlertCircle size={16} />
-              {error}
-            </p>
-          ) : null}
-          {warnings.map((warning) => (
-            <p className="notice" key={warning}>
-              <AlertCircle size={16} />
-              {warning}
-            </p>
-          ))}
-          {saveStatus ? (
-            <p className="notice success">
-              <Check size={16} />
-              {saveStatus}
-            </p>
-          ) : null}
         </section>
+        ) : null}
 
+        {activeTab === "routes" ? (
         <section className="control-section route-results-section" ref={routeResultsRef}>
           <div className="section-title">
             <h2>候选路线</h2>
@@ -1072,8 +1141,9 @@ export default function App() {
             )}
           </div>
         </section>
+        ) : null}
 
-        {selectedRoute ? (
+        {activeTab === "navigation" && selectedRoute ? (
           <section
             className="control-section navigation-section"
             ref={navigationSectionRef}
@@ -1223,6 +1293,7 @@ export default function App() {
           </section>
         ) : null}
 
+        {activeTab === "history" ? (
         <section className="control-section history-section">
           <div className="section-title">
             <h2>历史路线</h2>
@@ -1347,6 +1418,8 @@ export default function App() {
             )}
           </div>
         </section>
+        ) : null}
+        </div>
       </aside>
     </main>
   );

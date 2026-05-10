@@ -16,10 +16,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 button,
 input {
+  max-width: 100%;
   font: inherit;
 }
 
@@ -115,10 +117,11 @@ button {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
   min-height: 100vh;
   max-height: 100vh;
   padding: 20px;
-  overflow: auto;
+  overflow: hidden;
   background: #f8fafb;
   border-left: 1px solid rgba(21, 33, 47, 0.1);
 }
@@ -144,9 +147,83 @@ button {
   line-height: 1.1;
 }
 
+.workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid rgba(21, 33, 47, 0.1);
+  border-radius: 8px;
+  background: #edf1f4;
+}
+
+.workspace-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #53616f;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.workspace-tab-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #425466;
+  background: rgba(21, 33, 47, 0.08);
+  font-size: 11px;
+}
+
+.workspace-tab.active {
+  border-color: rgba(15, 139, 141, 0.22);
+  color: #0f686c;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(21, 33, 47, 0.08);
+}
+
+.workspace-tab.active .workspace-tab-count {
+  color: #0f686c;
+  background: #edf8f8;
+}
+
+.workspace-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.panel-feedback,
+.panel-workspace {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panel-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .control-section {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
   padding: 16px;
   border: 1px solid rgba(21, 33, 47, 0.1);
   border-radius: 8px;
@@ -159,6 +236,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   color: #324354;
   font-size: 14px;
   font-weight: 700;
@@ -173,6 +251,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .navigation-actions {
@@ -205,7 +284,7 @@ button {
 
 .coordinate-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -708,23 +787,27 @@ input[type="number"]:disabled {
   }
 
   .map-root {
-    bottom: min(58dvh, 560px);
+    bottom: min(52dvh, 520px);
   }
 
   .app-shell.is-navigating .map-root {
-    bottom: min(66dvh, 640px);
+    bottom: min(62dvh, 620px);
   }
 
   .control-panel {
     position: fixed;
-    inset: auto 0 0;
+    inset: auto 10px 0;
     z-index: 10;
-    gap: 10px;
-    min-height: 0;
-    max-height: 58vh;
-    max-height: min(58dvh, 560px);
-    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
-    overflow-y: auto;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    gap: 8px;
+    height: 52vh;
+    height: min(52dvh, 520px);
+    min-height: min(52dvh, 520px);
+    max-height: min(52dvh, 520px);
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    overflow: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     border: 0;
@@ -737,26 +820,28 @@ input[type="number"]:disabled {
   }
 
   .control-panel.navigation-active {
-    max-height: 66vh;
-    max-height: min(66dvh, 640px);
+    height: 62vh;
+    height: min(62dvh, 620px);
+    min-height: min(62dvh, 620px);
+    max-height: min(62dvh, 620px);
   }
 
   .control-panel::before {
     content: "";
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    justify-self: center;
+    flex: 0 0 4px;
+    align-self: center;
     width: 42px;
     height: 4px;
-    margin: -2px auto 2px;
+    margin: 0 auto 2px;
     border-radius: 999px;
     background: rgba(21, 33, 47, 0.2);
   }
 
   .panel-header {
+    flex: 0 0 34px;
     order: -3;
     padding: 0;
+    min-width: 0;
   }
 
   .panel-header p {
@@ -764,7 +849,7 @@ input[type="number"]:disabled {
   }
 
   .panel-header h1 {
-    font-size: 22px;
+    font-size: 21px;
   }
 
   .panel-header svg {
@@ -773,8 +858,99 @@ input[type="number"]:disabled {
   }
 
   .control-section {
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    padding: 10px;
+  }
+
+  .workspace-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    flex: 0 0 38px;
+    gap: 6px;
+    height: 38px;
+    overflow: hidden;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workspace-tab {
+    flex: none;
+    gap: 3px;
+    min-height: 34px;
+    height: 34px;
+    padding: 0 3px;
+    font-size: 11px;
+  }
+
+  .workspace-tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .workspace-tab-count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+  }
+
+  .panel-workspace {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: auto;
+    overflow-x: hidden;
+  }
+
+  .coordinate-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .coordinate-grid > *,
+  .preset-row > *,
+  .switch-row > * {
+    min-width: 0;
+  }
+
+  .field-label {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .origin-field-label {
+    display: grid;
+    grid-template-columns: minmax(0, calc(100% - 48px)) 40px;
+    width: min(100%, calc(100vw - 56px));
+    column-gap: 8px;
+  }
+
+  .field-label .mini-action {
+    width: auto;
+    margin-left: auto;
+  }
+
+  .origin-field-label .mini-action {
+    display: inline-grid;
+    width: 40px;
+    min-height: 32px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .origin-field-label .mini-action svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .preset-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .control-panel.navigation-active .navigation-section {
@@ -792,11 +968,13 @@ input[type="number"]:disabled {
 
   input[type="number"],
   .history-name-input {
-    padding: 9px;
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: 14px;
   }
 
   .primary-action {
-    min-height: 42px;
+    min-height: 40px;
   }
 
   .route-summary div {
@@ -832,37 +1010,43 @@ input[type="number"]:disabled {
 
   .origin-chip {
     left: 12px;
-    bottom: calc(58vh + 12px);
-    bottom: calc(min(58dvh, 560px) + 12px);
+    bottom: calc(52vh + 12px);
+    bottom: calc(min(52dvh, 520px) + 12px);
     max-width: calc(100% - 24px);
     padding: 8px 10px;
     font-size: 12px;
   }
 
   .app-shell.is-navigating .origin-chip {
-    bottom: calc(66vh + 12px);
-    bottom: calc(min(66dvh, 640px) + 12px);
+    bottom: calc(62vh + 12px);
+    bottom: calc(min(62dvh, 620px) + 12px);
   }
 }
 
 @media (max-width: 480px) {
   .control-panel {
-    max-height: 60vh;
-    max-height: 60dvh;
+    height: 56vh;
+    height: 56dvh;
+    min-height: 56dvh;
+    max-height: 56dvh;
+    inset-right: 8px;
+    inset-left: 8px;
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   }
 
   .map-root {
-    bottom: 60dvh;
+    bottom: 56dvh;
   }
 
   .control-panel.navigation-active {
-    max-height: 68vh;
-    max-height: 68dvh;
+    height: 64vh;
+    height: 64dvh;
+    min-height: 64dvh;
+    max-height: 64dvh;
   }
 
   .app-shell.is-navigating .map-root {
-    bottom: 68dvh;
+    bottom: 64dvh;
   }
 
   .control-section {
@@ -873,10 +1057,13 @@ input[type="number"]:disabled {
     font-size: 20px;
   }
 
-  .coordinate-grid,
   .switch-row,
   .preset-row,
   .route-summary {
+    gap: 8px;
+  }
+
+  .coordinate-grid {
     gap: 8px;
   }
 
@@ -908,10 +1095,10 @@ input[type="number"]:disabled {
   }
 
   .origin-chip {
-    bottom: calc(60dvh + 10px);
+    bottom: calc(56dvh + 10px);
   }
 
   .app-shell.is-navigating .origin-chip {
-    bottom: calc(68dvh + 10px);
+    bottom: calc(64dvh + 10px);
   }
 }
